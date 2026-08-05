@@ -5,44 +5,12 @@ from enum import Enum
 from typing import Any
 
 
-class FieldDataType(str, Enum):
-    UNKNOWN = "UNKNOWN"
-    TEXT = "TEXT"
-    NUMBER = "NUMBER"
-    DATE = "DATE"
-    BOOLEAN = "BOOLEAN"
-    FORMULA = "FORMULA"
-
-
-class FieldRole(str, Enum):
-    UNKNOWN = "UNKNOWN"
-    IDENTIFIER = "IDENTIFIER"
-    DESCRIPTION = "DESCRIPTION"
-    PRICE = "PRICE"
-    QUANTITY = "QUANTITY"
-    BENCHMARK = "BENCHMARK"
-    DATE = "DATE"
-    CATEGORY = "CATEGORY"
-    NOTE = "NOTE"
-    TOTAL = "TOTAL"
-    INPUT = "INPUT"
-
-
 class RangeOrientation(str, Enum):
     UNKNOWN = "UNKNOWN"
     SINGLE_CELL = "SINGLE_CELL"
     VERTICAL = "VERTICAL"
     HORIZONTAL = "HORIZONTAL"
     BLOCK = "BLOCK"
-
-
-class RegionOrientation(str, Enum):
-    UNKNOWN = "UNKNOWN"
-    TABLE = "TABLE"
-    VERTICAL_RANGE = "VERTICAL_RANGE"
-    HORIZONTAL_RANGE = "HORIZONTAL_RANGE"
-    CELL_BLOCK = "CELL_BLOCK"
-    SINGLE_CELL = "SINGLE_CELL"
 
 
 class InputAreaStatus(str, Enum):
@@ -181,34 +149,6 @@ class RangeSchema:
 
 
 @dataclass
-class FieldSchema:
-    field_name: str
-    sheet_name: str
-    field_range: RangeSchema | None = None
-    header_range: RangeSchema | None = None
-    role: FieldRole = FieldRole.UNKNOWN
-    data_type: FieldDataType = FieldDataType.UNKNOWN
-    confidence: float = 0.0
-    input_confidence: float = 0.0
-    is_input_field: bool = False
-    user_defined: bool = False
-
-    @property
-    def data_range(self) -> str | None:
-        if self.field_range is None:
-            return None
-
-        return self.field_range.address
-
-    @property
-    def header_cell(self) -> str | None:
-        if self.header_range is None:
-            return None
-
-        return self.header_range.start_cell
-
-
-@dataclass
 class InputArea:
     area_name: str
     sheet_name: str
@@ -260,93 +200,12 @@ class InputArea:
 
 
 @dataclass
-class RegionSchema:
-    region_name: str
-    sheet_name: str
-    region_range: RangeSchema
-    header_range: RangeSchema | None = None
-    orientation: RegionOrientation = RegionOrientation.UNKNOWN
-    confidence: float = 0.0
-    detected_by_ai: bool = True
-    user_confirmed: bool = False
-    user_created: bool = False
-    user_modified: bool = False
-    is_deleted: bool = False
-    colour: str = "#4F81BD"
-    visible: bool = True
-    region_type: str = "TABLE"
-    fields: list[FieldSchema] = field(default_factory=list)
-    notes: str = ""
-
-    @property
-    def address(self) -> str:
-        return self.region_range.address
-
-    @property
-    def field_count(self) -> int:
-        return len(self.fields)
-
-    @property
-    def status(self) -> str:
-        if self.is_deleted:
-            return "DELETED"
-
-        if self.user_created:
-            return "USER_CREATED"
-
-        if self.user_modified:
-            return "MODIFIED"
-
-        if self.user_confirmed:
-            return "CONFIRMED"
-
-        return "DETECTED"
-
-    def add_field(self, field_schema: FieldSchema) -> None:
-        self.fields.append(field_schema)
-
-    def remove_field(self, field_name: str) -> None:
-        self.fields = [
-            field
-            for field in self.fields
-            if field.field_name != field_name
-        ]
-
-    def contains_cell(self, cell_reference: str) -> bool:
-        return self.region_range.contains(cell_reference)
-
-    def confirm(self) -> None:
-        self.user_confirmed = True
-
-    def mark_modified(self) -> None:
-        self.user_modified = True
-
-    def mark_deleted(self) -> None:
-        self.is_deleted = True
-
-    def restore(self) -> None:
-        self.is_deleted = False
-
-
-@dataclass
 class WorksheetSchema:
     sheet_name: str
-    regions: list[RegionSchema] = field(default_factory=list)
     input_areas: list[InputArea] = field(default_factory=list)
-
-    def add_region(self, region_schema: RegionSchema) -> None:
-        self.regions.append(region_schema)
 
     def add_input_area(self, input_area: InputArea) -> None:
         self.input_areas.append(input_area)
-
-    def get_all_fields(self) -> list:
-        fields = []
-
-        for region in self.regions:
-            fields.extend(region.fields)
-
-        return fields
 
     def get_active_input_areas(self) -> list:
         return [
@@ -368,22 +227,6 @@ class WorkbookSchema:
     def get_worksheet(self, sheet_name: str) -> WorksheetSchema | None:
         return self.worksheets.get(sheet_name)
 
-    def get_all_regions(self) -> list:
-        regions = []
-
-        for worksheet in self.worksheets.values():
-            regions.extend(worksheet.regions)
-
-        return regions
-
-    def get_all_fields(self) -> list:
-        fields = []
-
-        for worksheet in self.worksheets.values():
-            fields.extend(worksheet.get_all_fields())
-
-        return fields
-
     def get_input_areas(self) -> list:
         input_areas = []
 
@@ -398,15 +241,6 @@ class WorkbookSchema:
             for input_area in self.get_input_areas()
             if input_area.user_confirmed or input_area.user_created
         ]
-
-    def get_unique_field_names(self) -> list:
-        names = set()
-
-        for field_schema in self.get_all_fields():
-            if field_schema.field_name:
-                names.add(field_schema.field_name)
-
-        return sorted(names)
 
 
 @dataclass
@@ -426,6 +260,3 @@ class DataRecord:
 
     def get_cell_reference(self, field_name: str) -> str:
         return self.cell_references.get(field_name, "")
-
-
-RegionRecord = DataRecord

@@ -11,8 +11,8 @@ except ImportError:
     Sheet = None
 
 from schema.workbook_schema import (
+    InputArea,
     RangeSchema,
-    RegionSchema,
 )
 
 
@@ -32,7 +32,7 @@ class WorkbookMapperDialog:
 
         self.current_sheet_name = None
 
-        self.region_lookup = {}
+        self.input_area_lookup = {}
         self.cell_lookup = {}
 
         self.window = tk.Toplevel(parent)
@@ -50,10 +50,10 @@ class WorkbookMapperDialog:
 
         self.sheet_control = None
         self.sheet_list = None
-        self.region_tree = None
+        self.input_area_tree = None
         self.inspector = None
 
-        self.show_regions_var = tk.BooleanVar(
+        self.show_input_areas_var = tk.BooleanVar(
             value=True
         )
 
@@ -121,7 +121,7 @@ class WorkbookMapperDialog:
 
         self._build_sheet_panel(left)
         self._build_grid_panel(centre)
-        self._build_region_panel(right)
+        self._build_input_area_panel(right)
         self._build_inspector(right)
 
         self._build_footer(main)
@@ -137,10 +137,21 @@ class WorkbookMapperDialog:
             pady=(0, 5),
         )
 
+        ttk.Label(
+            frame,
+            text=(
+                "Detected input areas are the cells the tool believes "
+                "suppliers fill in. Confirm the ones that look right, "
+                "edit or delete the ones that don't, and add any that "
+                "were missed."
+            ),
+            wraplength=1000,
+        ).pack(side=tk.LEFT, padx=5)
+
         ttk.Checkbutton(
             frame,
-            text="Show Regions",
-            variable=self.show_regions_var,
+            text="Show Input Areas",
+            variable=self.show_input_areas_var,
             command=self._refresh_display,
         ).pack(
             side=tk.LEFT,
@@ -248,13 +259,13 @@ class WorkbookMapperDialog:
         except Exception:
             pass
 
-    def _build_region_panel(
+    def _build_input_area_panel(
         self,
         parent,
     ):
         frame = ttk.LabelFrame(
             parent,
-            text="Regions",
+            text="Input Areas",
             padding=5,
         )
 
@@ -263,7 +274,7 @@ class WorkbookMapperDialog:
             expand=True,
         )
 
-        self.region_tree = ttk.Treeview(
+        self.input_area_tree = ttk.Treeview(
             frame,
             columns=(
                 "range",
@@ -273,30 +284,30 @@ class WorkbookMapperDialog:
             height=18,
         )
 
-        self.region_tree.heading(
+        self.input_area_tree.heading(
             "range",
             text="Range",
         )
 
-        self.region_tree.heading(
+        self.input_area_tree.heading(
             "status",
             text="Status",
         )
 
-        self.region_tree.pack(
+        self.input_area_tree.pack(
             fill=tk.BOTH,
             expand=True,
         )
 
-        self.region_tree.bind(
+        self.input_area_tree.bind(
             "<<TreeviewSelect>>",
-            self._region_selected,
+            self._input_area_selected,
         )
 
         ttk.Button(
             frame,
-            text="Create Region",
-            command=self._create_region,
+            text="Create Input Area",
+            command=self._create_input_area,
         ).pack(
             fill=tk.X,
             pady=2,
@@ -304,8 +315,8 @@ class WorkbookMapperDialog:
 
         ttk.Button(
             frame,
-            text="Edit Region",
-            command=self._edit_region,
+            text="Edit Input Area",
+            command=self._edit_input_area,
         ).pack(
             fill=tk.X,
             pady=2,
@@ -313,8 +324,8 @@ class WorkbookMapperDialog:
 
         ttk.Button(
             frame,
-            text="Delete Region",
-            command=self._delete_region,
+            text="Delete Input Area",
+            command=self._delete_input_area,
         ).pack(
             fill=tk.X,
             pady=2,
@@ -322,8 +333,8 @@ class WorkbookMapperDialog:
 
         ttk.Button(
             frame,
-            text="Confirm Region",
-            command=self._confirm_region,
+            text="Confirm Input Area",
+            command=self._confirm_input_area,
         ).pack(
             fill=tk.X,
             pady=2,
@@ -430,7 +441,7 @@ class WorkbookMapperDialog:
         )
 
         self._render_sheet()
-        self._load_regions()
+        self._load_input_areas()
 
     # ==================================================
     # RENDERING
@@ -498,8 +509,8 @@ class WorkbookMapperDialog:
                 worksheet
             )
 
-        if self.show_regions_var.get():
-            self._render_regions()
+        if self.show_input_areas_var.get():
+            self._render_input_areas()
 
     def _apply_formatting(
         self,
@@ -535,7 +546,7 @@ class WorkbookMapperDialog:
                 except Exception:
                     pass
 
-    def _render_regions(self):
+    def _render_input_areas(self):
 
         worksheet_schema = (
             self.workbook_schema.get_worksheet(
@@ -546,19 +557,16 @@ class WorkbookMapperDialog:
         if worksheet_schema is None:
             return
 
-        for region in worksheet_schema.regions:
-
-            if region.is_deleted:
-                continue
+        for input_area in worksheet_schema.get_active_input_areas():
 
             colour = (
-                self._region_colour(
-                    region
+                self._input_area_colour(
+                    input_area
                 )
             )
 
             for cell_reference in (
-                region.region_range.iter_cell_references()
+                input_area.area_range.iter_cell_references()
             ):
 
                 row, column = (
@@ -579,15 +587,15 @@ class WorkbookMapperDialog:
                     pass
 
     # ==================================================
-    # REGIONS
+    # INPUT AREAS
     # ==================================================
 
-    def _load_regions(self):
+    def _load_input_areas(self):
 
-        for item in self.region_tree.get_children():
-            self.region_tree.delete(item)
+        for item in self.input_area_tree.get_children():
+            self.input_area_tree.delete(item)
 
-        self.region_lookup.clear()
+        self.input_area_lookup.clear()
 
         worksheet_schema = (
             self.workbook_schema.get_worksheet(
@@ -598,29 +606,26 @@ class WorkbookMapperDialog:
         if worksheet_schema is None:
             return
 
-        for region in worksheet_schema.regions:
+        for input_area in worksheet_schema.get_active_input_areas():
 
-            if region.is_deleted:
-                continue
-
-            item = self.region_tree.insert(
+            item = self.input_area_tree.insert(
                 "",
                 tk.END,
                 values=(
-                    region.address,
-                    region.status,
+                    input_area.address,
+                    input_area.status,
                 ),
             )
 
-            self.region_lookup[
+            self.input_area_lookup[
                 item
-            ] = region
+            ] = input_area
 
-    def _create_region(self):
+    def _create_input_area(self):
 
         range_text = (
             simpledialog.askstring(
-                "Create Region",
+                "Create Input Area",
                 (
                     "Enter range\n\n"
                     "Example:\n"
@@ -652,13 +657,13 @@ class WorkbookMapperDialog:
             )
         )
 
-        region = RegionSchema(
-            region_name=(
-                f"Region "
-                f"{len(worksheet_schema.regions) + 1}"
+        input_area = InputArea(
+            area_name=(
+                f"Input Area "
+                f"{len(worksheet_schema.input_areas) + 1}"
             ),
             sheet_name=self.current_sheet_name,
-            region_range=RangeSchema(
+            area_range=RangeSchema(
                 sheet_name=self.current_sheet_name,
                 start_cell=start_cell.strip(),
                 end_cell=end_cell.strip(),
@@ -669,27 +674,27 @@ class WorkbookMapperDialog:
             confidence=1.0,
         )
 
-        worksheet_schema.add_region(
-            region
+        worksheet_schema.add_input_area(
+            input_area
         )
 
-        self._load_regions()
+        self._load_input_areas()
         self._refresh_display()
 
-    def _edit_region(self):
+    def _edit_input_area(self):
 
-        region = (
-            self._selected_region()
+        input_area = (
+            self._selected_input_area()
         )
 
-        if region is None:
+        if input_area is None:
             return
 
         new_range = (
             simpledialog.askstring(
-                "Edit Region",
+                "Edit Input Area",
                 "Enter new range",
-                initialvalue=region.address,
+                initialvalue=input_area.address,
                 parent=self.window,
             )
         )
@@ -704,56 +709,56 @@ class WorkbookMapperDialog:
             new_range.split(":")
         )
 
-        region.region_range = (
+        input_area.area_range = (
             RangeSchema(
-                sheet_name=region.sheet_name,
+                sheet_name=input_area.sheet_name,
                 start_cell=start_cell.strip(),
                 end_cell=end_cell.strip(),
             )
         )
 
-        region.mark_modified()
+        input_area.mark_modified()
 
-        self._load_regions()
+        self._load_input_areas()
         self._refresh_display()
 
-    def _delete_region(self):
+    def _delete_input_area(self):
 
-        region = (
-            self._selected_region()
+        input_area = (
+            self._selected_input_area()
         )
 
-        if region is None:
+        if input_area is None:
             return
 
-        region.mark_deleted()
+        input_area.mark_deleted()
 
-        self._load_regions()
+        self._load_input_areas()
         self._refresh_display()
 
-    def _confirm_region(self):
+    def _confirm_input_area(self):
 
-        region = (
-            self._selected_region()
+        input_area = (
+            self._selected_input_area()
         )
 
-        if region is None:
+        if input_area is None:
             return
 
-        region.confirm()
+        input_area.confirm()
 
-        self._load_regions()
+        self._load_input_areas()
 
-    def _selected_region(self):
+    def _selected_input_area(self):
 
         selection = (
-            self.region_tree.selection()
+            self.input_area_tree.selection()
         )
 
         if not selection:
             return None
 
-        return self.region_lookup.get(
+        return self.input_area_lookup.get(
             selection[0]
         )
 
@@ -825,15 +830,15 @@ class WorkbookMapperDialog:
             "\n".join(lines),
         )
 
-    def _region_selected(
+    def _input_area_selected(
         self,
         event=None,
     ):
-        region = (
-            self._selected_region()
+        input_area = (
+            self._selected_input_area()
         )
 
-        if region is None:
+        if input_area is None:
             return
 
         self.inspector.delete(
@@ -844,12 +849,11 @@ class WorkbookMapperDialog:
         self.inspector.insert(
             tk.END,
             (
-                f"Region: {region.region_name}\n"
-                f"Range: {region.address}\n"
-                f"Status: {region.status}\n"
-                f"Type: {region.region_type}\n"
-                f"Fields: {region.field_count}\n"
-                f"Confidence: {region.confidence}"
+                f"Input Area: {input_area.area_name}\n"
+                f"Range: {input_area.address}\n"
+                f"Status: {input_area.status}\n"
+                f"Confidence: {input_area.confidence}\n"
+                f"Detected by AI: {input_area.detected_by_ai}"
             ),
         )
 
@@ -860,17 +864,17 @@ class WorkbookMapperDialog:
     def _refresh_display(self):
         self._render_sheet()
 
-    def _region_colour(
+    def _input_area_colour(
         self,
-        region,
+        input_area,
     ):
-        if region.user_created:
+        if input_area.user_created:
             return "#D9EAD3"
 
-        if region.user_modified:
+        if input_area.user_modified:
             return "#FCE5CD"
 
-        if region.user_confirmed:
+        if input_area.user_confirmed:
             return "#D9EAD3"
 
         return "#CFE2F3"

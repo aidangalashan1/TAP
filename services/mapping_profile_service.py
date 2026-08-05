@@ -3,33 +3,29 @@
 import json
 from pathlib import Path
 
-from schema.workbook_schema import FieldRole
 from schema.workbook_schema import RangeSchema
 
 
 class MappingProfileService:
     """
-    Persists workbook mapping decisions so users do not need
+    Persists confirmed/edited input areas so users do not need
     to repeatedly remap the same template.
 
-    Stores:
-        - field name
-        - field role
-        - field range
-        - header range
+    Stores, per worksheet + input area name:
+        - area range
+        - confirmed / user-created status
 
     Example:
 
     {
-        "Weekday Rate": {
-            "role": "PRICE",
-            "field_range": {
+        "workbook_name": "Tender Template.xlsx",
+        "input_areas": {
+            "Sheet1::Input Area 1": {
+                "sheet_name": "Sheet1",
                 "start_cell": "H19",
-                "end_cell": "H300"
-            },
-            "header_range": {
-                "start_cell": "H18",
-                "end_cell": "H18"
+                "end_cell": "H300",
+                "user_confirmed": true,
+                "user_created": false
             }
         }
     }
@@ -124,61 +120,36 @@ class MappingProfileService:
         if profile_data is None:
             return workbook_schema
 
-        fields = profile_data.get(
-            "fields",
+        saved_areas = profile_data.get(
+            "input_areas",
             {},
         )
 
-        for field_schema in workbook_schema.get_all_fields():
+        for worksheet_schema in workbook_schema.worksheets.values():
 
-            field_data = fields.get(
-                field_schema.field_name
-            )
+            for input_area in worksheet_schema.input_areas:
 
-            if field_data is None:
-                continue
-
-            role_name = field_data.get(
-                "role"
-            )
-
-            if role_name:
-                try:
-                    field_schema.role = FieldRole(
-                        role_name
-                    )
-                except ValueError:
-                    pass
-
-            field_range_data = field_data.get(
-                "field_range"
-            )
-
-            if field_range_data:
-
-                field_schema.field_range = (
-                    RangeSchema(
-                        sheet_name=field_schema.sheet_name,
-                        start_cell=field_range_data["start_cell"],
-                        end_cell=field_range_data["end_cell"],
-                    )
+                key = self._area_key(
+                    worksheet_schema.sheet_name,
+                    input_area.area_name,
                 )
 
-            header_range_data = field_data.get(
-                "header_range"
-            )
+                area_data = saved_areas.get(key)
 
-            if header_range_data:
+                if area_data is None:
+                    continue
 
-                field_schema.header_range = (
-                    RangeSchema(
-                        sheet_name=field_schema.sheet_name,
-                        start_cell=header_range_data["start_cell"],
-                        end_cell=header_range_data["end_cell"],
-                    )
+                input_area.area_range = RangeSchema(
+                    sheet_name=input_area.sheet_name,
+                    start_cell=area_data["start_cell"],
+                    end_cell=area_data["end_cell"],
                 )
 
-            field_schema.user_defined = True
+                if area_data.get("user_confirmed"):
+                    input_area.user_confirmed = True
+
+                if area_data.get("user_created"):
+                    input_area.user_created = True
 
         return workbook_schema
 
@@ -220,43 +191,40 @@ class MappingProfileService:
 
         return result
 
+    def _area_key(
+        self,
+        sheet_name,
+        area_name,
+    ):
+        return f"{sheet_name}::{area_name}"
+
     def _serialise_schema(
         self,
         workbook_schema,
     ):
         data = {
             "workbook_name": workbook_schema.workbook_name,
-            "fields": {},
+            "input_areas": {},
         }
 
-        for field_schema in workbook_schema.get_all_fields():
+        for worksheet_schema in workbook_schema.worksheets.values():
 
-            data["fields"][
-                field_schema.field_name
-            ] = {
-                "role": field_schema.role.value,
-                "field_range": (
-                    self._serialise_range(
-                        field_schema.field_range
-                    )
-                ),
-                "header_range": (
-                    self._serialise_range(
-                        field_schema.header_range
-                    )
-                ),
-            }
+            for input_area in worksheet_schema.input_areas:
+
+                if input_area.is_deleted:
+                    continue
+
+                key = self._area_key(
+                    worksheet_schema.sheet_name,
+                    input_area.area_name,
+                )
+
+                data["input_areas"][key] = {
+                    "sheet_name": input_area.sheet_name,
+                    "start_cell": input_area.area_range.start_cell,
+                    "end_cell": input_area.area_range.end_cell,
+                    "user_confirmed": input_area.user_confirmed,
+                    "user_created": input_area.user_created,
+                }
 
         return data
-
-    def _serialise_range(
-        self,
-        range_schema,
-    ):
-        if range_schema is None:
-            return None
-
-        return {
-            "start_cell": range_schema.start_cell,
-            "end_cell": range_schema.end_cell,
-        }

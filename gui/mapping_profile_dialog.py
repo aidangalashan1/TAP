@@ -438,50 +438,40 @@ class MappingProfileDialog:
             f"Workbook: {workbook_name}\n\n",
         )
 
-        fields = profile_data.get(
-            "fields",
+        input_areas = profile_data.get(
+            "input_areas",
             {},
         )
 
-        for field_name, field_data in fields.items():
+        for area_key, area_data in input_areas.items():
 
-            role = field_data.get(
-                "role",
-                "UNKNOWN",
+            sheet_name = area_data.get(
+                "sheet_name",
+                "",
             )
 
-            field_range = field_data.get(
-                "field_range",
-                {},
+            start_cell = area_data.get(
+                "start_cell",
+                "",
             )
 
-            range_text = ""
+            end_cell = area_data.get(
+                "end_cell",
+                "",
+            )
 
-            if field_range:
-                start_cell = (
-                    field_range.get(
-                        "start_cell",
-                        "",
-                    )
-                )
-
-                end_cell = (
-                    field_range.get(
-                        "end_cell",
-                        "",
-                    )
-                )
-
-                range_text = (
-                    f"{start_cell}:{end_cell}"
-                )
+            confirmed = area_data.get(
+                "user_confirmed",
+                False,
+            )
 
             self.preview_text.insert(
                 tk.END,
                 (
-                    f"{field_name}\n"
-                    f"  Role: {role}\n"
-                    f"  Range: {range_text}\n\n"
+                    f"{area_key}\n"
+                    f"  Sheet: {sheet_name}\n"
+                    f"  Range: {start_cell}:{end_cell}\n"
+                    f"  Confirmed: {confirmed}\n\n"
                 ),
             )
 

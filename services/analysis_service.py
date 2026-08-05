@@ -181,20 +181,6 @@ class AnalysisService:
             workbook
         )
 
-    def get_available_fields(
-        self,
-        workbook
-    ):
-        workbook_schema = (
-            self.schema_service.build_schema(
-                workbook
-            )
-        )
-
-        return (
-            workbook_schema.get_unique_field_names()
-        )
-
     def get_available_sheets(
         self,
         workbook

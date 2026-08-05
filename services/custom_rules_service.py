@@ -49,21 +49,9 @@ class CustomRulesService:
     def build_schema_and_records(self, workbook):
         return self.schema_builder.build_schema_and_records(workbook)
 
-    def get_available_headers(self, workbook):
-        workbook_schema = self.build_schema(workbook)
-        return workbook_schema.get_unique_field_names()
-
-    def get_available_fields(self, workbook):
-        workbook_schema = self.build_schema(workbook)
-        return workbook_schema.get_all_fields()
-
     def get_available_sheets(self, workbook):
         workbook_schema = self.build_schema(workbook)
         return sorted(workbook_schema.worksheets.keys())
-
-    def get_available_regions(self, workbook):
-        workbook_schema = self.build_schema(workbook)
-        return workbook_schema.get_all_regions()
 
     def execute_rules(self, workbook, rules=None, workbook_schema=None):
         if rules is None:
@@ -102,14 +90,13 @@ class CustomRulesService:
         summary = []
 
         for worksheet in workbook_schema.worksheets.values():
-            for region in worksheet.regions:
+            for input_area in worksheet.get_active_input_areas():
                 summary.append(
                     {
-                        "sheet_name": region.sheet_name,
-                        "region_name": region.region_name,
-                        "range": region.region_range.address,
-                        "field_count": len(region.fields),
-                        "confidence": region.confidence,
+                        "sheet_name": input_area.sheet_name,
+                        "area_name": input_area.area_name,
+                        "range": input_area.address,
+                        "confidence": input_area.confidence,
                     }
                 )
 
