@@ -363,6 +363,23 @@ class MainWindow:
             self._set_step_status("analysis", "Ready")
 
     # ==================================================
+    # Error Handling
+    # ==================================================
+
+    def _handle_error(self, title, error):
+        """
+        Show a clear error dialog and log the failure, instead of
+        letting an unhandled exception (bad/corrupt/locked file,
+        unexpected workbook layout, etc.) crash the whole app.
+        """
+
+        message = str(error) or error.__class__.__name__
+
+        self._log(f"{title}: {message}")
+
+        messagebox.showerror(title, message)
+
+    # ==================================================
     # File Selection
     # ==================================================
 
@@ -377,13 +394,24 @@ class MainWindow:
         if not file_path:
             return
 
-        self.template_file = file_path
+        try:
 
-        self.template_workbook = (
-            self.workbook_loader_service.load_workbook(
-                file_path
+            template_workbook = (
+                self.workbook_loader_service.load_workbook(
+                    file_path
+                )
             )
-        )
+
+        except Exception as error:
+
+            self._handle_error(
+                "Failed to Load Template", error
+            )
+
+            return
+
+        self.template_file = file_path
+        self.template_workbook = template_workbook
 
         self._refresh_state()
 
@@ -402,13 +430,24 @@ class MainWindow:
         if not file_path:
             return
 
-        self.benchmark_file = file_path
+        try:
 
-        self.benchmark_workbook = (
-            self.workbook_loader_service.load_workbook(
-                file_path
+            benchmark_workbook = (
+                self.workbook_loader_service.load_workbook(
+                    file_path
+                )
             )
-        )
+
+        except Exception as error:
+
+            self._handle_error(
+                "Failed to Load Benchmark", error
+            )
+
+            return
+
+        self.benchmark_file = file_path
+        self.benchmark_workbook = benchmark_workbook
 
         self._refresh_state()
 
@@ -450,11 +489,21 @@ class MainWindow:
 
             return
 
-        self.workbook_schema = (
-            self.schema_service.build_schema(
-                self.template_workbook
+        try:
+
+            self.workbook_schema = (
+                self.schema_service.build_schema(
+                    self.template_workbook
+                )
             )
-        )
+
+        except Exception as error:
+
+            self._handle_error(
+                "Failed to Build Schema", error
+            )
+
+            return
 
         dialog = WorkbookMapperDialog(
             parent=self.root,
@@ -487,12 +536,22 @@ class MainWindow:
 
         if result["action"] == "load":
 
-            self.workbook_schema = (
-                self.mapping_profile_service.apply_profile(
-                    self.workbook_schema,
-                    result["profile_data"],
+            try:
+
+                self.workbook_schema = (
+                    self.mapping_profile_service.apply_profile(
+                        self.workbook_schema,
+                        result["profile_data"],
+                    )
                 )
-            )
+
+            except Exception as error:
+
+                self._handle_error(
+                    "Failed to Apply Profile", error
+                )
+
+                return
 
             self._refresh_state()
 
@@ -567,13 +626,38 @@ class MainWindow:
 
             return
 
-        supplier_workbooks = [
-            (
-                Path(supplier_file).stem,
-                self.workbook_loader_service.load_workbook(supplier_file),
+        supplier_workbooks = []
+
+        for supplier_file in self.supplier_files:
+
+            try:
+
+                workbook = (
+                    self.workbook_loader_service.load_workbook(
+                        supplier_file
+                    )
+                )
+
+            except Exception as error:
+
+                self._log(
+                    f"Skipped {Path(supplier_file).name}: {error}"
+                )
+
+                continue
+
+            supplier_workbooks.append(
+                (Path(supplier_file).stem, workbook)
             )
-            for supplier_file in self.supplier_files
-        ]
+
+        if not supplier_workbooks:
+
+            self._handle_error(
+                "Failed to Load Supplier Workbooks",
+                "None of the selected supplier workbooks could be loaded.",
+            )
+
+            return
 
         comparison_mode = (
             "against the benchmark workbook"
@@ -586,13 +670,23 @@ class MainWindow:
             f"supplier workbook(s), comparing {comparison_mode}."
         )
 
-        results = self.analysis_service.analyse_suppliers(
-            workbook_schema=self.workbook_schema,
-            supplier_workbooks=supplier_workbooks,
-            benchmark_workbook=self.benchmark_workbook,
-            custom_rules=self.custom_rules,
-            output_folder="reports",
-        )
+        try:
+
+            results = self.analysis_service.analyse_suppliers(
+                workbook_schema=self.workbook_schema,
+                supplier_workbooks=supplier_workbooks,
+                benchmark_workbook=self.benchmark_workbook,
+                custom_rules=self.custom_rules,
+                output_folder="reports",
+            )
+
+        except Exception as error:
+
+            self._handle_error(
+                "Analysis Failed", error
+            )
+
+            return
 
         for result in results:
 
