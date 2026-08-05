@@ -9,7 +9,7 @@ from tkinter import ttk
 import config
 from gui.workbook_mapper_dialog import WorkbookMapperDialog
 from gui.mapping_profile_dialog import MappingProfileDialog
-from gui.rule_wizard_dialog import RuleWizardDialog
+from gui.rule_manager_dialog import RuleManagerDialog
 
 from services.analysis_service import AnalysisService
 from services.custom_rules_service import CustomRulesService
@@ -153,10 +153,11 @@ class MainWindow:
             number=4,
             title="Define Rules (Optional)",
             description=(
-                "Add rules to catch blanks, zeroes, duplicates, "
-                "and outliers in supplier responses."
+                "Create, edit, enable/disable, or delete rules that "
+                "catch blanks, zeroes, duplicates, and outliers in "
+                "supplier responses."
             ),
-            buttons=[("Rule Wizard...", self._open_rule_wizard)],
+            buttons=[("Manage Rules...", self._manage_rules)],
         )
 
         self._build_step(
@@ -564,7 +565,7 @@ class MainWindow:
     # Rules
     # ==================================================
 
-    def _open_rule_wizard(self):
+    def _manage_rules(self):
 
         if self.workbook_schema is None:
 
@@ -581,26 +582,18 @@ class MainWindow:
             )
         )
 
-        dialog = RuleWizardDialog(
+        dialog = RuleManagerDialog(
             self.root,
+            self.custom_rules_service,
             fields,
         )
 
-        result = dialog.show()
-
-        if result is None:
-            return
-
-        self.custom_rules.append(result)
-
-        self.custom_rules_service.save_rules(
-            self.custom_rules
-        )
+        self.custom_rules = dialog.show()
 
         self._refresh_state()
 
         self._log(
-            f"Created rule: {result.name}"
+            f"{len(self.custom_rules)} rule(s) saved"
         )
 
     # ==================================================
