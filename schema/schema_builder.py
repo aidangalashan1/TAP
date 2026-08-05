@@ -2,6 +2,7 @@
 
 from schema.input_area_detector import InputAreaDetector
 from schema.workbook_schema import (
+    DataRecord,
     WorkbookSchema,
     WorksheetSchema,
 )
@@ -68,6 +69,125 @@ class SchemaBuilder:
         )
 
         return workbook_schema
+
+    # ==================================================
+    # DATA RECORD EXTRACTION
+    # ==================================================
+
+    def build_records(
+        self,
+        workbook,
+        workbook_schema,
+    ):
+        """
+        Build one DataRecord per row spanned by the
+        analysis input areas on each worksheet, with
+        one field per input area (or one field per
+        column, for areas wider than a single column).
+        """
+
+        records = []
+
+        areas_by_sheet = {}
+
+        for input_area in self.get_analysis_areas(
+            workbook_schema
+        ):
+            areas_by_sheet.setdefault(
+                input_area.sheet_name, []
+            ).append(input_area)
+
+        for sheet_name, input_areas in areas_by_sheet.items():
+
+            worksheet = workbook.get_worksheet(
+                sheet_name
+            )
+
+            if worksheet is None:
+                continue
+
+            min_row = min(
+                input_area.area_range.min_row
+                for input_area in input_areas
+            )
+
+            max_row = max(
+                input_area.area_range.max_row
+                for input_area in input_areas
+            )
+
+            for row in range(min_row, max_row + 1):
+
+                record = DataRecord(
+                    sheet_name=sheet_name,
+                    region_name=sheet_name,
+                    record_reference=f"Row {row}",
+                )
+
+                has_value = False
+
+                for input_area in input_areas:
+
+                    area_range = input_area.area_range
+
+                    if row < area_range.min_row or row > area_range.max_row:
+                        continue
+
+                    multi_column = (
+                        area_range.max_column > area_range.min_column
+                    )
+
+                    for column in range(
+                        area_range.min_column,
+                        area_range.max_column + 1,
+                    ):
+                        column_text = area_range._number_to_column(
+                            column
+                        )
+
+                        cell_reference = f"{column_text}{row}"
+
+                        cell = worksheet.get_cell(
+                            cell_reference
+                        )
+
+                        if cell is None:
+                            continue
+
+                        field_name = (
+                            input_area.area_name
+                            if not multi_column
+                            else f"{input_area.area_name} ({column_text})"
+                        )
+
+                        record.set_value(
+                            field_name,
+                            cell.value,
+                            cell_reference,
+                        )
+
+                        if cell.value is not None and cell.value != "":
+                            has_value = True
+
+                if has_value:
+                    records.append(record)
+
+        return records
+
+    def build_schema_and_records(
+        self,
+        workbook,
+    ):
+        workbook_schema = self.build_schema(
+            workbook
+        )
+
+        records = self.build_records(
+            workbook,
+            workbook_schema,
+        )
+
+        return workbook_schema, records
 
     # ==================================================
     # REFRESH EXISTING SCHEMA
