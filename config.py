@@ -11,14 +11,29 @@ from pathlib import Path
 
 
 # --------------------------------------------------
+# Application Directory
+# --------------------------------------------------
+
+# Anchor persisted app data (custom rules, mapping profiles, reports)
+# to the application's own directory rather than the process's current
+# working directory, which changes depending on how the app is launched.
+
+BASE_DIR = Path(__file__).resolve().parent
+
+
+# --------------------------------------------------
 # Application Defaults
 # --------------------------------------------------
 
 APP_NAME = "Tender Clarification Analyser"
 
-DEFAULT_OUTPUT_FOLDER = "outputs"
+DEFAULT_OUTPUT_FOLDER = str(BASE_DIR / "reports")
 
 DEFAULT_REPORT_FILE_NAME = "tender_clarification_report.xlsx"
+
+CUSTOM_RULES_FILE_PATH = str(BASE_DIR / "custom_rules.json")
+
+MAPPING_PROFILES_DIRECTORY = str(BASE_DIR / "mapping_profiles")
 
 
 # --------------------------------------------------

@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import config
 from rules.custom_rule_models import (
     CustomRule,
     CustomRuleCondition,
@@ -16,7 +17,10 @@ from rules.custom_rule_models import (
 
 
 class CustomRuleStore:
-    def __init__(self, file_path="custom_rules.json"):
+    def __init__(self, file_path=None):
+        if file_path is None:
+            file_path = config.CUSTOM_RULES_FILE_PATH
+
         self.file_path = Path(file_path)
 
     def load_rules(self):

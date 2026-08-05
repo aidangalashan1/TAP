@@ -1,4 +1,4 @@
-# gui/rule_builder_dialog.py
+# gui/rule_manager_dialog.py
 
 import tkinter as tk
 from tkinter import messagebox
