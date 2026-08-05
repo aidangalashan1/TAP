@@ -1,9 +1,12 @@
 # services/analysis_service.py
 
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from models.pricing_models import SupplierAnalysisResult
 from reporting.report_writer import ReportWriter
+from rules.cross_supplier_comparator import CrossSupplierComparator
 from services.custom_rules_service import CustomRulesService
 from services.schema_service import SchemaService
 
@@ -24,6 +27,7 @@ class AnalysisService:
         custom_rules_service=None,
         schema_service=None,
         report_writer=None,
+        cross_supplier_comparator=None,
     ):
         self.custom_rules_service = (
             custom_rules_service
@@ -40,76 +44,130 @@ class AnalysisService:
             or ReportWriter()
         )
 
+        self.cross_supplier_comparator = (
+            cross_supplier_comparator
+            or CrossSupplierComparator()
+        )
+
     # --------------------------------------------------
-    # Single Workbook Analysis
+    # Multi-Supplier Analysis
     # --------------------------------------------------
 
-    def analyse_workbook(
+    def analyse_suppliers(
         self,
-        supplier_name,
-        workbook,
+        workbook_schema,
+        supplier_workbooks,
+        benchmark_workbook=None,
         custom_rules=None,
         output_folder=None,
     ):
-        workbook_schema, records = (
-            self.schema_service.build_schema_and_records(
-                workbook
+        """
+        workbook_schema: the confirmed WorkbookSchema built from the
+            template, shared by every supplier so the same field/row
+            identifies the same thing in every workbook.
+        supplier_workbooks: list of (supplier_name, WorkbookInfo).
+        benchmark_workbook: optional WorkbookInfo compared against
+            each supplier's values. When omitted, suppliers are
+            compared statistically against each other instead.
+        """
+
+        supplier_records = {
+            supplier_name: self.schema_service.build_records(
+                workbook,
+                workbook_schema,
+            )
+            for supplier_name, workbook in supplier_workbooks
+        }
+
+        comparison_findings_by_supplier = (
+            self._run_cross_supplier_comparison(
+                supplier_records=supplier_records,
+                benchmark_workbook=benchmark_workbook,
+                workbook_schema=workbook_schema,
             )
         )
 
-        findings = (
-            self.custom_rules_service.execute_rules_against_records(
-                records=records,
-                rules=custom_rules,
-            )
-        )
-
-        supplier_result = self._build_supplier_result(
-            supplier_name=supplier_name,
-            findings=findings,
-        )
-
-        report_path = ""
-
-        if output_folder is not None:
-
-            report_path = self._write_report(
-                supplier_result=supplier_result,
-                output_folder=output_folder,
-            )
-
-        return AnalysisResult(
-            supplier_name=supplier_name,
-            workbook_schema=workbook_schema,
-            records=records,
-            findings=findings,
-            report_path=report_path,
-        )
-
-    # --------------------------------------------------
-    # Batch Analysis
-    # --------------------------------------------------
-
-    def analyse_workbooks(
-        self,
-        workbooks,
-        custom_rules=None,
-        output_folder=None,
-    ):
         results = []
 
-        for supplier_name, workbook in workbooks:
+        for supplier_name, workbook in supplier_workbooks:
 
-            result = self.analyse_workbook(
-                supplier_name=supplier_name,
-                workbook=workbook,
-                custom_rules=custom_rules,
-                output_folder=output_folder,
+            records = supplier_records[supplier_name]
+
+            quick_findings = (
+                self.custom_rules_service.execute_rules_against_records(
+                    records=records,
+                    rules=custom_rules,
+                )
             )
 
-            results.append(result)
+            for finding in quick_findings:
+                finding.supplier_name = supplier_name
+
+            findings = (
+                quick_findings
+                + comparison_findings_by_supplier.get(supplier_name, [])
+            )
+
+            supplier_result = SupplierAnalysisResult(
+                supplier_name=supplier_name,
+                findings=findings,
+            )
+
+            report_path = ""
+
+            if output_folder is not None:
+
+                report_path = self._write_report(
+                    supplier_result=supplier_result,
+                    output_folder=output_folder,
+                )
+
+            results.append(
+                AnalysisResult(
+                    supplier_name=supplier_name,
+                    workbook_schema=workbook_schema,
+                    records=records,
+                    findings=findings,
+                    report_path=report_path,
+                )
+            )
 
         return results
+
+    def _run_cross_supplier_comparison(
+        self,
+        supplier_records,
+        benchmark_workbook,
+        workbook_schema,
+    ):
+        if benchmark_workbook is not None:
+
+            benchmark_records = self.schema_service.build_records(
+                benchmark_workbook,
+                workbook_schema,
+            )
+
+            comparison_findings = (
+                self.cross_supplier_comparator.compare_to_benchmark(
+                    supplier_records=supplier_records,
+                    benchmark_records=benchmark_records,
+                )
+            )
+
+        else:
+
+            comparison_findings = (
+                self.cross_supplier_comparator.compare_statistical(
+                    supplier_records=supplier_records,
+                )
+            )
+
+        findings_by_supplier = defaultdict(list)
+
+        for finding in comparison_findings:
+            findings_by_supplier[finding.supplier_name].append(finding)
+
+        return findings_by_supplier
 
     # --------------------------------------------------
     # Schema Helpers
@@ -121,16 +179,6 @@ class AnalysisService:
     ):
         return self.schema_service.build_schema(
             workbook
-        )
-
-    def build_schema_and_records(
-        self,
-        workbook
-    ):
-        return (
-            self.schema_service.build_schema_and_records(
-                workbook
-            )
         )
 
     def get_available_fields(
@@ -145,20 +193,6 @@ class AnalysisService:
 
         return (
             workbook_schema.get_unique_field_names()
-        )
-
-    def get_available_regions(
-        self,
-        workbook
-    ):
-        workbook_schema = (
-            self.schema_service.build_schema(
-                workbook
-            )
-        )
-
-        return (
-            workbook_schema.get_all_regions()
         )
 
     def get_available_sheets(
@@ -206,21 +240,6 @@ class AnalysisService:
         )
 
         return str(report_path)
-
-    def _build_supplier_result(
-        self,
-        supplier_name,
-        findings,
-    ):
-        class SupplierResult:
-            pass
-
-        result = SupplierResult()
-
-        result.supplier_name = supplier_name
-        result.findings = findings
-
-        return result
 
     def _safe_filename(
         self,

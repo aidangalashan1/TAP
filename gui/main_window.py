@@ -176,7 +176,9 @@ class MainWindow:
             number=6,
             title="Run Analysis",
             description=(
-                "Analyse every supplier workbook and generate a "
+                "Compare each supplier's confirmed field values "
+                "against the benchmark (if loaded) or statistically "
+                "against the other suppliers, and generate a "
                 "findings report for each one."
             ),
             buttons=[("Run Analysis", self._run_analysis)],
@@ -345,12 +347,17 @@ class MainWindow:
         else:
             self._set_step_status("suppliers", "Not started")
 
-        # Step 6: Run Analysis (needs suppliers)
-        self._set_step_enabled(
-            "analysis", bool(self.supplier_files)
+        # Step 6: Run Analysis (needs mapping and suppliers)
+        ready_for_analysis = (
+            self.workbook_schema is not None
+            and bool(self.supplier_files)
         )
 
-        if not self.supplier_files:
+        self._set_step_enabled("analysis", ready_for_analysis)
+
+        if self.workbook_schema is None:
+            self._set_step_status("analysis", "Review mapping first")
+        elif not self.supplier_files:
             self._set_step_status("analysis", "Load supplier workbooks first")
         else:
             self._set_step_status("analysis", "Ready")
@@ -551,28 +558,43 @@ class MainWindow:
 
             return
 
-        reports_generated = 0
+        if self.workbook_schema is None:
 
-        for supplier_file in self.supplier_files:
-
-            workbook = (
-                self.workbook_loader_service.load_workbook(
-                    supplier_file
-                )
+            messagebox.showwarning(
+                "Mapping Required",
+                "Please review the template's field mapping first.",
             )
 
-            result = (
-                self.analysis_service.analyse_workbook(
-                    supplier_name=Path(
-                        supplier_file
-                    ).stem,
-                    workbook=workbook,
-                    custom_rules=self.custom_rules,
-                    output_folder="reports",
-                )
-            )
+            return
 
-            reports_generated += 1
+        supplier_workbooks = [
+            (
+                Path(supplier_file).stem,
+                self.workbook_loader_service.load_workbook(supplier_file),
+            )
+            for supplier_file in self.supplier_files
+        ]
+
+        comparison_mode = (
+            "against the benchmark workbook"
+            if self.benchmark_workbook is not None
+            else "statistically across suppliers"
+        )
+
+        self._log(
+            f"Running analysis on {len(supplier_workbooks)} "
+            f"supplier workbook(s), comparing {comparison_mode}."
+        )
+
+        results = self.analysis_service.analyse_suppliers(
+            workbook_schema=self.workbook_schema,
+            supplier_workbooks=supplier_workbooks,
+            benchmark_workbook=self.benchmark_workbook,
+            custom_rules=self.custom_rules,
+            output_folder="reports",
+        )
+
+        for result in results:
 
             self._log(
                 f"{result.supplier_name}: "
@@ -584,7 +606,7 @@ class MainWindow:
             (
                 f"Analysis complete.\n\n"
                 f"Reports generated: "
-                f"{reports_generated}"
+                f"{len(results)}"
             ),
         )
 
