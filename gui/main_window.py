@@ -24,7 +24,7 @@ class MainWindow:
         self.root = root
 
         self.root.title("Tender Analysis Platform")
-        self.root.geometry("1300x850")
+        self.root.geometry("1300x900")
 
         self.analysis_service = AnalysisService()
         self.schema_service = SchemaService()
@@ -46,7 +46,13 @@ class MainWindow:
             self.custom_rules_service.load_rules()
         )
 
+        # Populated by _build_steps; used by _refresh_state to
+        # enable/disable steps and show per-step status text.
+        self.step_status_labels = {}
+        self.step_buttons = {}
+
         self._build_ui()
+        self._refresh_state()
 
     # ==================================================
     # UI
@@ -64,121 +70,173 @@ class MainWindow:
             expand=True,
         )
 
-        self._build_file_section(main)
-        self._build_action_section(main)
-        self._build_status_section(main)
+        self._build_header(main)
+        self._build_steps(main)
         self._build_log_section(main)
 
-    def _build_file_section(self, parent):
+    def _build_header(self, parent):
 
-        frame = ttk.LabelFrame(
-            parent,
-            text="Workbooks",
-            padding=10,
-        )
+        header = ttk.Frame(parent)
 
-        frame.pack(
+        header.pack(
             fill=tk.X,
-            pady=(0, 10),
+            pady=(0, 15),
         )
 
-        ttk.Button(
-            frame,
-            text="Template",
-            command=self._select_template,
-        ).pack(side=tk.LEFT, padx=5)
+        ttk.Label(
+            header,
+            text="Tender Analysis Platform",
+            font=("TkDefaultFont", 16, "bold"),
+        ).pack(anchor="w")
 
-        ttk.Button(
-            frame,
-            text="Benchmark",
-            command=self._select_benchmark,
-        ).pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(
-            frame,
-            text="Suppliers",
-            command=self._select_suppliers,
-        ).pack(side=tk.LEFT, padx=5)
-
-    def _build_action_section(self, parent):
-
-        frame = ttk.LabelFrame(
-            parent,
-            text="Actions",
-            padding=10,
-        )
-
-        frame.pack(
-            fill=tk.X,
-            pady=(0, 10),
-        )
-
-        ttk.Button(
-            frame,
-            text="Review Mapping",
-            command=self._review_mapping,
-        ).pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(
-            frame,
-            text="Profiles",
-            command=self._manage_profiles,
-        ).pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(
-            frame,
-            text="Rule Wizard",
-            command=self._open_rule_wizard,
-        ).pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(
-            frame,
-            text="Run Analysis",
-            command=self._run_analysis,
-        ).pack(side=tk.LEFT, padx=5)
-
-    def _build_status_section(self, parent):
-
-        frame = ttk.LabelFrame(
-            parent,
-            text="Status",
-            padding=10,
-        )
-
-        frame.pack(
-            fill=tk.X,
-            pady=(0, 10),
-        )
-
-        self.template_label = ttk.Label(
-            frame,
-            text="Template: Not loaded",
-        )
-
-        self.template_label.pack(
-            anchor="w"
-        )
-
-        self.benchmark_label = ttk.Label(
-            frame,
-            text="Benchmark: Not loaded",
-        )
-
-        self.benchmark_label.pack(
-            anchor="w"
-        )
-
-        self.rules_label = ttk.Label(
-            frame,
+        ttk.Label(
+            header,
             text=(
-                f"Rules: "
-                f"{len(self.custom_rules)}"
-            )
+                "Compare supplier tender workbooks against your "
+                "template and rules to automatically flag blanks, "
+                "outliers, and pricing anomalies."
+            ),
+        ).pack(anchor="w")
+
+    def _build_steps(self, parent):
+
+        steps = ttk.Frame(parent)
+
+        steps.pack(
+            fill=tk.X,
+            pady=(0, 10),
         )
 
-        self.rules_label.pack(
-            anchor="w"
+        self._build_step(
+            steps,
+            key="template",
+            number=1,
+            title="Load Template Workbook",
+            description=(
+                "Choose the blank tender template. Its layout "
+                "is used to identify where supplier answers go."
+            ),
+            buttons=[("Choose Template...", self._select_template)],
         )
+
+        self._build_step(
+            steps,
+            key="mapping",
+            number=2,
+            title="Review Field Mapping",
+            description=(
+                "Confirm which cells in the template are supplier "
+                "input fields, or load a saved mapping profile."
+            ),
+            buttons=[
+                ("Review Mapping...", self._review_mapping),
+                ("Mapping Profiles...", self._manage_profiles),
+            ],
+        )
+
+        self._build_step(
+            steps,
+            key="benchmark",
+            number=3,
+            title="Load Benchmark Workbook (Optional)",
+            description=(
+                "Choose a benchmark workbook to compare supplier "
+                "pricing against known reference values."
+            ),
+            buttons=[("Choose Benchmark...", self._select_benchmark)],
+        )
+
+        self._build_step(
+            steps,
+            key="rules",
+            number=4,
+            title="Define Rules (Optional)",
+            description=(
+                "Add rules to catch blanks, zeroes, duplicates, "
+                "and outliers in supplier responses."
+            ),
+            buttons=[("Rule Wizard...", self._open_rule_wizard)],
+        )
+
+        self._build_step(
+            steps,
+            key="suppliers",
+            number=5,
+            title="Load Supplier Workbooks",
+            description=(
+                "Choose one or more completed supplier workbooks "
+                "to analyse."
+            ),
+            buttons=[("Choose Suppliers...", self._select_suppliers)],
+        )
+
+        self._build_step(
+            steps,
+            key="analysis",
+            number=6,
+            title="Run Analysis",
+            description=(
+                "Analyse every supplier workbook and generate a "
+                "findings report for each one."
+            ),
+            buttons=[("Run Analysis", self._run_analysis)],
+        )
+
+    def _build_step(
+        self,
+        parent,
+        key,
+        number,
+        title,
+        description,
+        buttons,
+    ):
+
+        frame = ttk.LabelFrame(
+            parent,
+            text=f"Step {number}: {title}",
+            padding=10,
+        )
+
+        frame.pack(
+            fill=tk.X,
+            pady=(0, 6),
+        )
+
+        ttk.Label(
+            frame,
+            text=description,
+            wraplength=900,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 6))
+
+        row = ttk.Frame(frame)
+
+        row.pack(fill=tk.X)
+
+        self.step_buttons[key] = []
+
+        for label, command in buttons:
+
+            button = ttk.Button(
+                row,
+                text=label,
+                command=command,
+            )
+
+            button.pack(side=tk.LEFT, padx=(0, 8))
+
+            self.step_buttons[key].append(button)
+
+        status_label = ttk.Label(
+            row,
+            text="Not started",
+            foreground="#888888",
+        )
+
+        status_label.pack(side=tk.LEFT, padx=(12, 0))
+
+        self.step_status_labels[key] = status_label
 
     def _build_log_section(self, parent):
 
@@ -196,12 +254,106 @@ class MainWindow:
         self.log_text = tk.Text(
             frame,
             wrap="word",
+            height=8,
         )
 
         self.log_text.pack(
             fill=tk.BOTH,
             expand=True,
         )
+
+    # ==================================================
+    # State / Step Progress
+    # ==================================================
+
+    def _set_step_status(self, key, text, done=False):
+
+        label = self.step_status_labels.get(key)
+
+        if label is None:
+            return
+
+        label.configure(
+            text=(f"✓ {text}" if done else text),
+            foreground=("#2e7d32" if done else "#888888"),
+        )
+
+    def _set_step_enabled(self, key, enabled):
+
+        state = "normal" if enabled else "disabled"
+
+        for button in self.step_buttons.get(key, []):
+            button.configure(state=state)
+
+    def _refresh_state(self):
+
+        # Step 1: Template
+        if self.template_workbook is not None:
+            self._set_step_status(
+                "template",
+                Path(self.template_file).name,
+                done=True,
+            )
+        else:
+            self._set_step_status("template", "Not started")
+
+        # Step 2: Mapping (needs template)
+        self._set_step_enabled(
+            "mapping", self.template_workbook is not None
+        )
+
+        if self.workbook_schema is not None:
+            self._set_step_status("mapping", "Mapping reviewed", done=True)
+        elif self.template_workbook is not None:
+            self._set_step_status("mapping", "Not reviewed yet")
+        else:
+            self._set_step_status("mapping", "Load a template first")
+
+        # Step 3: Benchmark (optional, always available)
+        if self.benchmark_workbook is not None:
+            self._set_step_status(
+                "benchmark",
+                Path(self.benchmark_file).name,
+                done=True,
+            )
+        else:
+            self._set_step_status("benchmark", "Skipped")
+
+        # Step 4: Rules (needs mapping)
+        self._set_step_enabled(
+            "rules", self.workbook_schema is not None
+        )
+
+        if self.custom_rules:
+            self._set_step_status(
+                "rules",
+                f"{len(self.custom_rules)} rule(s) defined",
+                done=True,
+            )
+        elif self.workbook_schema is not None:
+            self._set_step_status("rules", "None defined yet")
+        else:
+            self._set_step_status("rules", "Review mapping first")
+
+        # Step 5: Suppliers
+        if self.supplier_files:
+            self._set_step_status(
+                "suppliers",
+                f"{len(self.supplier_files)} workbook(s) selected",
+                done=True,
+            )
+        else:
+            self._set_step_status("suppliers", "Not started")
+
+        # Step 6: Run Analysis (needs suppliers)
+        self._set_step_enabled(
+            "analysis", bool(self.supplier_files)
+        )
+
+        if not self.supplier_files:
+            self._set_step_status("analysis", "Load supplier workbooks first")
+        else:
+            self._set_step_status("analysis", "Ready")
 
     # ==================================================
     # File Selection
@@ -226,9 +378,7 @@ class MainWindow:
             )
         )
 
-        self.template_label.configure(
-            text=f"Template: {Path(file_path).name}"
-        )
+        self._refresh_state()
 
         self._log(
             f"Loaded template workbook: {Path(file_path).name}"
@@ -253,9 +403,7 @@ class MainWindow:
             )
         )
 
-        self.benchmark_label.configure(
-            text=f"Benchmark: {Path(file_path).name}"
-        )
+        self._refresh_state()
 
         self._log(
             f"Loaded benchmark workbook: {Path(file_path).name}"
@@ -273,6 +421,8 @@ class MainWindow:
             return
 
         self.supplier_files = list(files)
+
+        self._refresh_state()
 
         self._log(
             f"{len(self.supplier_files)} supplier workbook(s) selected"
@@ -314,6 +464,8 @@ class MainWindow:
                 "Workbook mapping updated"
             )
 
+        self._refresh_state()
+
     def _manage_profiles(self):
 
         dialog = MappingProfileDialog(
@@ -334,6 +486,8 @@ class MainWindow:
                     result["profile_data"],
                 )
             )
+
+            self._refresh_state()
 
             self._log(
                 f"Applied profile: {result['profile_name']}"
@@ -376,12 +530,7 @@ class MainWindow:
             self.custom_rules
         )
 
-        self.rules_label.configure(
-            text=(
-                f"Rules: "
-                f"{len(self.custom_rules)}"
-            )
-        )
+        self._refresh_state()
 
         self._log(
             f"Created rule: {result.name}"
