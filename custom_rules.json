@@ -1,0 +1,68 @@
+[
+    {
+        "name": "Quick Rules",
+        "severity": "MEDIUM",
+        "enabled": true,
+        "match_mode": "ALL",
+        "sheet_name": null,
+        "message": "",
+        "description": "",
+        "tags": [],
+        "conditions": []
+    },
+    {
+        "name": "Quick Rules",
+        "severity": "MEDIUM",
+        "enabled": true,
+        "match_mode": "ALL",
+        "sheet_name": null,
+        "message": "",
+        "description": "",
+        "tags": [],
+        "conditions": []
+    },
+    {
+        "name": "Quick Rules",
+        "severity": "MEDIUM",
+        "enabled": true,
+        "match_mode": "ALL",
+        "sheet_name": null,
+        "message": "",
+        "description": "",
+        "tags": [],
+        "conditions": []
+    },
+    {
+        "name": "Quick Rules",
+        "severity": "MEDIUM",
+        "enabled": true,
+        "match_mode": "ALL",
+        "sheet_name": null,
+        "message": "",
+        "description": "",
+        "tags": [],
+        "conditions": []
+    },
+    {
+        "name": "Quick Rules",
+        "severity": "MEDIUM",
+        "enabled": true,
+        "match_mode": "ALL",
+        "sheet_name": null,
+        "message": "",
+        "description": "",
+        "tags": [],
+        "conditions": []
+    },
+    {
+        "name": "Quick Rules",
+        "severity": "MEDIUM",
+        "enabled": true,
+        "match_mode": "ALL",
+        "sheet_name": null,
+        "message": "",
+        "description": "",
+        "tags": [],
+        "conditions": []
+    }
+]

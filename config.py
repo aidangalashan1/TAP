@@ -1,0 +1,166 @@
+# config.py
+
+# Application-level configuration for the Tender Clarification Analyser.
+#
+# Keep default values here rather than hardcoding them across
+# parser, rules, GUI, and reporting modules.
+
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+# --------------------------------------------------
+# Application Defaults
+# --------------------------------------------------
+
+APP_NAME = "Tender Clarification Analyser"
+
+DEFAULT_OUTPUT_FOLDER = "outputs"
+
+DEFAULT_REPORT_FILE_NAME = "tender_clarification_report.xlsx"
+
+
+# --------------------------------------------------
+# Excel File Support
+# --------------------------------------------------
+
+SUPPORTED_EXCEL_EXTENSIONS = {
+    ".xlsx",
+    ".xls",
+}
+
+
+# --------------------------------------------------
+# Mandatory Cell Detection
+# --------------------------------------------------
+
+# Common yellow fill colours used in Excel templates
+# to indicate supplier input cells.
+
+YELLOW_FILL_CODES = {
+    "FFFF00",
+    "FFFFFF00",
+    "00FFFF00",
+}
+
+
+# --------------------------------------------------
+# Optional Sections
+# --------------------------------------------------
+
+# These phrases identify sections that should normally
+# be ignored because they are optional supplier catalogue
+# areas rather than mandatory evaluated tender items.
+
+OPTIONAL_SECTION_KEYWORDS = [
+    "Other/Non Standard/Specialist Attachments",
+    "Other / Non Standard / Specialist Attachments",
+    "Other attachments not covered above",
+    "Other (Please insert title)",
+]
+
+
+# --------------------------------------------------
+# Default Analysis Thresholds
+# --------------------------------------------------
+
+DEFAULT_OUTLIER_THRESHOLD_PERCENT = 30.0
+
+DEFAULT_BENCHMARK_THRESHOLD_PERCENT = 30.0
+
+DEFAULT_STANDARD_DEVIATION_THRESHOLD = 3.0
+
+DEFAULT_WEEKEND_PREMIUM_THRESHOLD_PERCENT = 100.0
+
+
+# --------------------------------------------------
+# Severity Thresholds
+# --------------------------------------------------
+
+HIGH_SEVERITY_DEVIATION_PERCENT = 100.0
+
+MEDIUM_SEVERITY_DEVIATION_PERCENT = 50.0
+
+LOW_SEVERITY_DEVIATION_PERCENT = 25.0
+
+
+# --------------------------------------------------
+# Report Sheet Names
+# --------------------------------------------------
+
+SUMMARY_SHEET_NAME = "Executive Summary"
+
+DETAILED_FINDINGS_SHEET_NAME = "Detailed Findings"
+
+CLARIFICATIONS_SHEET_NAME = "Clarifications"
+
+
+# --------------------------------------------------
+# Dataclass Settings Object
+# --------------------------------------------------
+
+@dataclass
+class AppConfig:
+    app_name: str = APP_NAME
+
+    output_folder: str = DEFAULT_OUTPUT_FOLDER
+
+    default_report_file_name: str = DEFAULT_REPORT_FILE_NAME
+
+    default_outlier_threshold_percent: float = (
+        DEFAULT_OUTLIER_THRESHOLD_PERCENT
+    )
+
+    default_benchmark_threshold_percent: float = (
+        DEFAULT_BENCHMARK_THRESHOLD_PERCENT
+    )
+
+    default_standard_deviation_threshold: float = (
+        DEFAULT_STANDARD_DEVIATION_THRESHOLD
+    )
+
+    default_weekend_premium_threshold_percent: float = (
+        DEFAULT_WEEKEND_PREMIUM_THRESHOLD_PERCENT
+    )
+
+    check_blank_cells: bool = True
+
+    check_zero_values: bool = True
+
+    check_negative_values: bool = True
+
+    check_statistical_outliers: bool = True
+
+    check_benchmark_variance: bool = True
+
+    check_weekend_weekday_logic: bool = True
+
+    check_formula_overwrites: bool = True
+
+    check_summary_reconciliation: bool = True
+
+    ignore_optional_sections: bool = True
+
+    def get_output_folder_path(self):
+        return Path(self.output_folder)
+
+    def get_default_report_path(self):
+        return (
+            self.get_output_folder_path()
+            / self.default_report_file_name
+        )
+
+
+# --------------------------------------------------
+# Helper Functions
+# --------------------------------------------------
+
+def is_supported_excel_file(file_path):
+    suffix = Path(file_path).suffix.lower()
+
+    return suffix in SUPPORTED_EXCEL_EXTENSIONS
+
+
+def get_default_config():
+    return AppConfig()
