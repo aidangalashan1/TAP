@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import config
 from schema.workbook_schema import RangeSchema
 
 
@@ -31,7 +32,10 @@ class MappingProfileService:
     }
     """
 
-    def __init__(self, profile_directory="mapping_profiles"):
+    def __init__(self, profile_directory=None):
+        if profile_directory is None:
+            profile_directory = config.MAPPING_PROFILES_DIRECTORY
+
         self.profile_directory = Path(profile_directory)
 
         self.profile_directory.mkdir(

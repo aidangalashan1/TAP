@@ -234,6 +234,30 @@ class SchemaBuilder:
 
         return workbook_schema.get_input_areas()
 
+    def get_missing_sheets(
+        self,
+        workbook,
+        workbook_schema,
+    ):
+        """
+        Sheet names the confirmed/detected input areas expect
+        that are absent from the given workbook - a strong sign
+        it's the wrong file, or a renamed/removed sheet.
+        """
+
+        required_sheets = {
+            input_area.sheet_name
+            for input_area in self.get_analysis_areas(
+                workbook_schema
+            )
+        }
+
+        return sorted(
+            sheet_name
+            for sheet_name in required_sheets
+            if workbook.get_worksheet(sheet_name) is None
+        )
+
     def get_analysis_ranges(
         self,
         workbook_schema,

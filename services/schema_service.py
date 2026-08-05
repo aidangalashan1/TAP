@@ -49,6 +49,16 @@ class SchemaService:
             )
         )
 
+    def get_missing_sheets(
+        self,
+        workbook,
+        workbook_schema,
+    ):
+        return self.schema_builder.get_missing_sheets(
+            workbook,
+            workbook_schema,
+        )
+
     # --------------------------------------------------
     # Input Area Operations
     # --------------------------------------------------

@@ -4,6 +4,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from models.pricing_models import Finding
+from models.pricing_models import Severity
 from models.pricing_models import SupplierAnalysisResult
 from reporting.report_writer import ReportWriter
 from rules.cross_supplier_comparator import CrossSupplierComparator
@@ -71,6 +73,14 @@ class AnalysisService:
             compared statistically against each other instead.
         """
 
+        missing_sheets_by_supplier = {
+            supplier_name: self.schema_service.get_missing_sheets(
+                workbook,
+                workbook_schema,
+            )
+            for supplier_name, workbook in supplier_workbooks
+        }
+
         supplier_records = {
             supplier_name: self.schema_service.build_records(
                 workbook,
@@ -104,7 +114,11 @@ class AnalysisService:
                 finding.supplier_name = supplier_name
 
             findings = (
-                quick_findings
+                self._build_missing_sheet_findings(
+                    supplier_name,
+                    missing_sheets_by_supplier[supplier_name],
+                )
+                + quick_findings
                 + comparison_findings_by_supplier.get(supplier_name, [])
             )
 
@@ -133,6 +147,39 @@ class AnalysisService:
             )
 
         return results
+
+    def _build_missing_sheet_findings(self, supplier_name, missing_sheets):
+        if not missing_sheets:
+            return []
+
+        sheet_list = ", ".join(missing_sheets)
+
+        return [
+            Finding(
+                supplier_name=supplier_name,
+                severity=Severity.HIGH,
+                worksheet_name=sheet_list,
+                cell_reference="",
+                item_description="Missing worksheet(s)",
+                actual_value="",
+                reason=(
+                    f"This workbook is missing worksheet(s) the template "
+                    f"expects: {sheet_list}. Fields on those sheets could "
+                    f"not be read."
+                ),
+                suggested_clarification=(
+                    f"Please confirm this is the correct workbook for "
+                    f"{supplier_name}, and that it includes the "
+                    f"worksheet(s): {sheet_list}."
+                ),
+            )
+        ]
+
+    def get_missing_sheets(self, workbook, workbook_schema):
+        return self.schema_service.get_missing_sheets(
+            workbook,
+            workbook_schema,
+        )
 
     def _run_cross_supplier_comparison(
         self,

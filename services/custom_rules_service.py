@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import config
 from rules.custom_rule_store import CustomRuleStore
 from rules.schema_rule_engine import SchemaRuleEngine
 from schema.schema_builder import SchemaBuilder
@@ -22,7 +23,10 @@ class CustomRulesService:
     # - DataRecord
     # - SchemaRuleEngine
 
-    def __init__(self, rules_file_path="custom_rules.json"):
+    def __init__(self, rules_file_path=None):
+        if rules_file_path is None:
+            rules_file_path = config.CUSTOM_RULES_FILE_PATH
+
         self.rules_file_path = Path(rules_file_path)
         self.rule_store = CustomRuleStore(str(self.rules_file_path))
         self.schema_builder = SchemaBuilder()

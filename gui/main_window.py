@@ -6,6 +6,7 @@ from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import ttk
 
+import config
 from gui.workbook_mapper_dialog import WorkbookMapperDialog
 from gui.mapping_profile_dialog import MappingProfileDialog
 from gui.rule_wizard_dialog import RuleWizardDialog
@@ -665,6 +666,21 @@ class MainWindow:
             else "statistically across suppliers"
         )
 
+        if self.benchmark_workbook is not None:
+
+            missing_sheets = self.analysis_service.get_missing_sheets(
+                self.benchmark_workbook, self.workbook_schema
+            )
+
+            if missing_sheets:
+
+                self._log(
+                    "Warning: benchmark workbook is missing "
+                    f"worksheet(s) {', '.join(missing_sheets)} - "
+                    "benchmark comparison for fields on those sheets "
+                    "will be skipped."
+                )
+
         self._log(
             f"Running analysis on {len(supplier_workbooks)} "
             f"supplier workbook(s), comparing {comparison_mode}."
@@ -677,7 +693,7 @@ class MainWindow:
                 supplier_workbooks=supplier_workbooks,
                 benchmark_workbook=self.benchmark_workbook,
                 custom_rules=self.custom_rules,
-                output_folder="reports",
+                output_folder=config.DEFAULT_OUTPUT_FOLDER,
             )
 
         except Exception as error:
