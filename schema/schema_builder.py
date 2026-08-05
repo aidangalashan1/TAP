@@ -1,4 +1,4 @@
-# services/schema_builder.py
+# schema/schema_builder.py
 
 from schema.input_area_detector import InputAreaDetector
 from schema.workbook_schema import (

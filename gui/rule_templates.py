@@ -1,4 +1,4 @@
-# gui/mapping_editor_dialog.py
+# gui/rule_templates.py
 
 import tkinter as tk
 from tkinter import messagebox
