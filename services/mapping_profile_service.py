@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import config
+from schema.workbook_schema import InputArea
 from schema.workbook_schema import RangeSchema
 
 
@@ -124,9 +125,11 @@ class MappingProfileService:
         if profile_data is None:
             return workbook_schema
 
-        saved_areas = profile_data.get(
-            "input_areas",
-            {},
+        saved_areas = dict(
+            profile_data.get(
+                "input_areas",
+                {},
+            )
         )
 
         for worksheet_schema in workbook_schema.worksheets.values():
@@ -138,24 +141,65 @@ class MappingProfileService:
                     input_area.area_name,
                 )
 
-                area_data = saved_areas.get(key)
+                area_data = saved_areas.pop(key, None)
 
                 if area_data is None:
                     continue
 
-                input_area.area_range = RangeSchema(
-                    sheet_name=input_area.sheet_name,
+                self._apply_area_data(input_area, area_data)
+
+        # Any remaining saved areas didn't match an area on the
+        # freshly-detected schema (typically ones the user drew by
+        # hand) - recreate them so manual work survives a reload.
+        for key, area_data in saved_areas.items():
+
+            sheet_name = area_data.get("sheet_name")
+
+            worksheet_schema = workbook_schema.get_worksheet(sheet_name)
+
+            if worksheet_schema is None:
+                continue
+
+            input_area = InputArea(
+                area_name=key.split("::", 1)[-1],
+                sheet_name=sheet_name,
+                area_range=RangeSchema(
+                    sheet_name=sheet_name,
                     start_cell=area_data["start_cell"],
                     end_cell=area_data["end_cell"],
-                )
+                ),
+                detected_by_ai=False,
+                confidence=1.0,
+            )
 
-                if area_data.get("user_confirmed"):
-                    input_area.user_confirmed = True
+            self._apply_area_data(input_area, area_data)
 
-                if area_data.get("user_created"):
-                    input_area.user_created = True
+            worksheet_schema.add_input_area(input_area)
 
         return workbook_schema
+
+    def _apply_area_data(self, input_area, area_data):
+        input_area.area_range = RangeSchema(
+            sheet_name=input_area.sheet_name,
+            start_cell=area_data["start_cell"],
+            end_cell=area_data["end_cell"],
+        )
+
+        input_area.user_confirmed = bool(
+            area_data.get("user_confirmed")
+        )
+
+        input_area.user_created = bool(
+            area_data.get("user_created")
+        )
+
+        input_area.is_deleted = bool(
+            area_data.get("is_deleted")
+        )
+
+        input_area.is_ignored = bool(
+            area_data.get("is_ignored")
+        )
 
     # ==================================================
     # Internal Helpers
@@ -213,10 +257,7 @@ class MappingProfileService:
 
         for worksheet_schema in workbook_schema.worksheets.values():
 
-            for input_area in worksheet_schema.input_areas:
-
-                if input_area.is_deleted:
-                    continue
+            for input_area in worksheet_schema.get_all_input_areas():
 
                 key = self._area_key(
                     worksheet_schema.sheet_name,
@@ -229,6 +270,8 @@ class MappingProfileService:
                     "end_cell": input_area.area_range.end_cell,
                     "user_confirmed": input_area.user_confirmed,
                     "user_created": input_area.user_created,
+                    "is_deleted": input_area.is_deleted,
+                    "is_ignored": input_area.is_ignored,
                 }
 
         return data

@@ -49,13 +49,16 @@ class RuleWizardDialog:
         "Z Score": OutlierMethod.Z_SCORE,
     }
 
-    def __init__(self, parent, fields):
+    def __init__(self, parent, fields, existing_rule=None):
         self.parent = parent
         self.fields = sorted(list(fields))
         self.result = None
+        self.existing_rule = existing_rule
 
         self.window = tk.Toplevel(parent)
-        self.window.title("Rule Wizard")
+        self.window.title(
+            "Edit Rule" if existing_rule is not None else "Rule Wizard"
+        )
         self.window.geometry("900x650")
         self.window.transient(parent)
         self.window.grab_set()
@@ -85,8 +88,93 @@ class RuleWizardDialog:
 
         self.body_frame = None
 
+        if existing_rule is not None:
+            self._load_existing_rule(existing_rule)
+
         self._build_ui()
         self._refresh_body()
+
+    # ==================================================
+    # Editing an existing rule
+    # ==================================================
+
+    def _load_existing_rule(self, rule):
+        self.rule_name_var.set(rule.name)
+        self.message_var.set(rule.message or "")
+
+        severity_value = (
+            rule.severity.value
+            if hasattr(rule.severity, "value")
+            else str(rule.severity)
+        )
+
+        for label, value in self.SEVERITY_OPTIONS.items():
+            if value.value == severity_value:
+                self.severity_var.set(label)
+                break
+
+        if rule.rule_type == CustomRuleType.QUICK_RULES:
+            self.mode_var.set("Quick Rules")
+            self.quick_blanks_var.set(rule.check_blanks)
+            self.quick_zeroes_var.set(rule.check_zeroes)
+            self.quick_negatives_var.set(rule.check_negative_values)
+            self.quick_duplicates_var.set(rule.check_duplicates)
+            self.quick_outliers_var.set(rule.check_outliers)
+            self.outlier_tolerance_var.set(str(rule.outlier_tolerance))
+
+            for label, value in self.OUTLIER_METHODS.items():
+                if value == rule.outlier_method:
+                    self.outlier_method_var.set(label)
+                    break
+
+            return
+
+        self.mode_var.set("Advanced Rule")
+        self._load_existing_advanced_rule(rule)
+
+    def _load_existing_advanced_rule(self, rule):
+        conditions = rule.conditions
+
+        if not conditions:
+            return
+
+        first = conditions[0]
+
+        operator_value = (
+            first.operator.value
+            if hasattr(first.operator, "value")
+            else str(first.operator)
+        )
+
+        right_type_value = (
+            first.right_value_type.value
+            if hasattr(first.right_value_type, "value")
+            else str(first.right_value_type)
+        )
+
+        self.left_field_var.set(first.left_field)
+
+        if len(conditions) == 2:
+            self.advanced_type_var.set("Range Check")
+            self.minimum_value_var.set(str(conditions[0].right_value))
+            self.maximum_value_var.set(str(conditions[1].right_value))
+            return
+
+        if operator_value == CustomRuleOperator.IS_BLANK.value:
+            self.advanced_type_var.set("Check For Blank Values")
+            return
+
+        for label, value in self.OPERATOR_OPTIONS.items():
+            if value.value == operator_value:
+                self.operator_var.set(label)
+                break
+
+        if right_type_value == CustomRuleRightValueType.FIELD.value:
+            self.advanced_type_var.set("Compare Two Fields")
+            self.right_field_var.set(str(first.right_value))
+        else:
+            self.advanced_type_var.set("Compare Field To Fixed Value")
+            self.fixed_value_var.set(str(first.right_value))
 
     def show(self):
         self.parent.wait_window(self.window)
@@ -207,7 +295,7 @@ class RuleWizardDialog:
 
         ttk.Button(
             frame,
-            text="Create Rule",
+            text="Save Rule" if self.existing_rule is not None else "Create Rule",
             command=self._create_rule,
         ).pack(side=tk.RIGHT, padx=(5, 0))
 
@@ -436,12 +524,19 @@ class RuleWizardDialog:
 
     def _create_rule(self):
         if self.mode_var.get() == "Quick Rules":
-            self.result = self._create_quick_rule()
+            new_rule = self._create_quick_rule()
         else:
-            self.result = self._create_advanced_rule()
+            new_rule = self._create_advanced_rule()
 
-        if self.result is None:
+        if new_rule is None:
             return
+
+        if self.existing_rule is not None:
+            new_rule.enabled = self.existing_rule.enabled
+            self.existing_rule.__dict__.update(new_rule.__dict__)
+            self.result = self.existing_rule
+        else:
+            self.result = new_rule
 
         self.window.destroy()
 

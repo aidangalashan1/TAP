@@ -84,17 +84,17 @@ class InputAreaDetector:
                     )
                 )
 
+                area_range = self._build_range(
+                    worksheet_name,
+                    group,
+                )
+
                 input_area = InputArea(
                     area_name=(
-                        f"Input Area {index}"
+                        f"{worksheet_name}!{area_range.address}"
                     ),
                     sheet_name=worksheet_name,
-                    area_range=(
-                        self._build_range(
-                            worksheet_name,
-                            group,
-                        )
-                    ),
+                    area_range=area_range,
                     confidence=round(
                         confidence / 100,
                         2,

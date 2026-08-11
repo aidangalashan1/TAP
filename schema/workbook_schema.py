@@ -19,6 +19,7 @@ class InputAreaStatus(str, Enum):
     USER_CREATED = "USER_CREATED"
     MODIFIED = "MODIFIED"
     DELETED = "DELETED"
+    IGNORED = "IGNORED"
 
 
 @dataclass
@@ -101,6 +102,17 @@ class RangeSchema:
             and self.min_column <= column <= self.max_column
         )
 
+    def intersects(self, other: "RangeSchema") -> bool:
+        if self.sheet_name != other.sheet_name:
+            return False
+
+        return not (
+            self.max_row < other.min_row
+            or self.min_row > other.max_row
+            or self.max_column < other.min_column
+            or self.min_column > other.max_column
+        )
+
     def iter_cell_references(self) -> list:
         references = []
 
@@ -159,6 +171,7 @@ class InputArea:
     user_created: bool = False
     user_modified: bool = False
     is_deleted: bool = False
+    is_ignored: bool = False
     visible: bool = True
     colour: str = "#D9EAD3"
     notes: str = ""
@@ -171,6 +184,9 @@ class InputArea:
     def status(self) -> str:
         if self.is_deleted:
             return InputAreaStatus.DELETED.value
+
+        if self.is_ignored:
+            return InputAreaStatus.IGNORED.value
 
         if self.user_created:
             return InputAreaStatus.USER_CREATED.value
@@ -188,15 +204,23 @@ class InputArea:
 
     def confirm(self) -> None:
         self.user_confirmed = True
+        self.is_deleted = False
+        self.is_ignored = False
 
     def mark_modified(self) -> None:
         self.user_modified = True
 
     def mark_deleted(self) -> None:
         self.is_deleted = True
+        self.is_ignored = False
+
+    def mark_ignored(self) -> None:
+        self.is_ignored = True
+        self.is_deleted = False
 
     def restore(self) -> None:
         self.is_deleted = False
+        self.is_ignored = False
 
 
 @dataclass
@@ -211,8 +235,18 @@ class WorksheetSchema:
         return [
             input_area
             for input_area in self.input_areas
-            if not input_area.is_deleted
+            if not input_area.is_deleted and not input_area.is_ignored
         ]
+
+    def get_all_input_areas(self) -> list:
+        """
+        Every input area regardless of status, including removed and
+        ignored ones - used for display (the mapper grid/list) so the
+        user can see and undo past decisions. Analysis code should use
+        get_active_input_areas() instead.
+        """
+
+        return list(self.input_areas)
 
 
 @dataclass
@@ -232,6 +266,14 @@ class WorkbookSchema:
 
         for worksheet in self.worksheets.values():
             input_areas.extend(worksheet.get_active_input_areas())
+
+        return input_areas
+
+    def get_all_input_areas(self) -> list:
+        input_areas = []
+
+        for worksheet in self.worksheets.values():
+            input_areas.extend(worksheet.get_all_input_areas())
 
         return input_areas
 
@@ -257,6 +299,9 @@ class DataRecord:
 
     def get_value(self, field_name: str) -> Any:
         return self.values.get(field_name)
+
+    def has_field(self, field_name: str) -> bool:
+        return field_name in self.values
 
     def get_cell_reference(self, field_name: str) -> str:
         return self.cell_references.get(field_name, "")
