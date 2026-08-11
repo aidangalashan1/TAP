@@ -92,6 +92,13 @@ class SchemaRuleEngine:
 
         for record in records:
             for field_name in fields:
+
+                if not record.has_field(field_name):
+                    # This field doesn't apply to this record (e.g. a
+                    # different input area on the same sheet) - it's
+                    # not a blank cell to flag, it's not a cell at all.
+                    continue
+
                 value = record.get_value(field_name)
 
                 if self._is_blank(value):

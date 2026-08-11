@@ -87,6 +87,12 @@ class RuleManagerDialog:
 
         ttk.Button(
             button_row,
+            text="Edit Rule...",
+            command=self._edit_rule,
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_row,
             text="Enable / Disable",
             command=self._toggle_enabled,
         ).pack(side=tk.LEFT, padx=5)
@@ -160,6 +166,22 @@ class RuleManagerDialog:
             return
 
         self.rules.append(result)
+
+        self._save_and_reload()
+
+    def _edit_rule(self):
+        rule = self._selected_rule()
+
+        if rule is None:
+            messagebox.showinfo("No Rule Selected", "Select a rule first.")
+            return
+
+        dialog = RuleWizardDialog(self.window, self.fields, existing_rule=rule)
+
+        result = dialog.show()
+
+        if result is None:
+            return
 
         self._save_and_reload()
 

@@ -2,7 +2,6 @@
 
 import tkinter as tk
 from tkinter import ttk
-from tkinter import messagebox
 from tkinter import simpledialog
 
 try:
@@ -17,6 +16,35 @@ from schema.workbook_schema import (
 
 
 class WorkbookMapperDialog:
+    """
+    Lets the user review the automatically detected input zones and
+    correct them by dragging a selection over cells in the grid and
+    applying a tool:
+
+        Detected (yellow)  - a candidate zone, not yet reviewed
+        Confirmed (green)  - reviewed and correct, used for analysis
+        Removed (red)      - reviewed and rejected, kept for audit
+        Ignored (black)    - not an input zone at all (headers, notes,
+                              blank formatting, etc.)
+
+    Every cell in the sheet is coloured by its status when "Show Input
+    Areas" is on, so the whole grid - not just the detected patches -
+    shows what will and won't be read during analysis.
+    """
+
+    TOOLS = {
+        "Detected (Yellow)": "detected",
+        "Confirmed (Green)": "confirmed",
+        "Removed (Red)": "removed",
+        "Ignored (Black)": "ignored",
+    }
+
+    STATUS_COLOURS = {
+        "detected": "#FFF2A8",
+        "confirmed": "#93C47D",
+        "removed": "#E06666",
+        "ignored": "#434343",
+    }
 
     def __init__(
         self,
@@ -58,7 +86,11 @@ class WorkbookMapperDialog:
         )
 
         self.show_formatting_var = tk.BooleanVar(
-            value=True
+            value=False
+        )
+
+        self.tool_var = tk.StringVar(
+            value=list(self.TOOLS.keys())[1]
         )
 
         self._build_ui()
@@ -140,27 +172,51 @@ class WorkbookMapperDialog:
         ttk.Label(
             frame,
             text=(
-                "Detected input areas are the cells the tool believes "
-                "suppliers fill in. Confirm the ones that look right, "
-                "edit or delete the ones that don't, and add any that "
-                "were missed."
+                "Drag to select cells in the grid, choose a zone type "
+                "below, then click Apply. Yellow = detected but not "
+                "reviewed, green = confirmed input, red = removed, "
+                "black = ignored / not an input cell."
             ),
             wraplength=1000,
+        ).pack(anchor="w", padx=5, pady=(0, 5))
+
+        tool_row = ttk.Frame(frame)
+        tool_row.pack(fill=tk.X)
+
+        ttk.Label(
+            tool_row,
+            text="Zone type:",
+        ).pack(side=tk.LEFT, padx=(5, 5))
+
+        tool_combo = ttk.Combobox(
+            tool_row,
+            textvariable=self.tool_var,
+            values=list(self.TOOLS.keys()),
+            state="readonly",
+            width=20,
+        )
+
+        tool_combo.pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Button(
+            tool_row,
+            text="Apply to Selection",
+            command=self._apply_tool_to_selection,
         ).pack(side=tk.LEFT, padx=5)
 
         ttk.Checkbutton(
-            frame,
+            tool_row,
             text="Show Input Areas",
             variable=self.show_input_areas_var,
             command=self._refresh_display,
         ).pack(
             side=tk.LEFT,
-            padx=5,
+            padx=(20, 5),
         )
 
         ttk.Checkbutton(
-            frame,
-            text="Show Formatting",
+            tool_row,
+            text="Show Original Formatting",
             variable=self.show_formatting_var,
             command=self._refresh_display,
         ).pack(
@@ -306,16 +362,7 @@ class WorkbookMapperDialog:
 
         ttk.Button(
             frame,
-            text="Create Input Area",
-            command=self._create_input_area,
-        ).pack(
-            fill=tk.X,
-            pady=2,
-        )
-
-        ttk.Button(
-            frame,
-            text="Edit Input Area",
+            text="Edit Range...",
             command=self._edit_input_area,
         ).pack(
             fill=tk.X,
@@ -324,17 +371,8 @@ class WorkbookMapperDialog:
 
         ttk.Button(
             frame,
-            text="Delete Input Area",
-            command=self._delete_input_area,
-        ).pack(
-            fill=tk.X,
-            pady=2,
-        )
-
-        ttk.Button(
-            frame,
-            text="Confirm Input Area",
-            command=self._confirm_input_area,
+            text="Restore to Detected",
+            command=self._restore_input_area,
         ).pack(
             fill=tk.X,
             pady=2,
@@ -510,7 +548,9 @@ class WorkbookMapperDialog:
             )
 
         if self.show_input_areas_var.get():
-            self._render_input_areas()
+            self._render_input_areas(
+                worksheet
+            )
 
     def _apply_formatting(
         self,
@@ -546,7 +586,12 @@ class WorkbookMapperDialog:
                 except Exception:
                     pass
 
-    def _render_input_areas(self):
+    def _render_input_areas(self, worksheet):
+        """
+        Colour every used cell in the sheet by its input-area status,
+        including cells that aren't part of any area at all (ignored/
+        irrelevant, shown black) - not just the detected patches.
+        """
 
         worksheet_schema = (
             self.workbook_schema.get_worksheet(
@@ -557,34 +602,169 @@ class WorkbookMapperDialog:
         if worksheet_schema is None:
             return
 
-        for input_area in worksheet_schema.get_active_input_areas():
+        input_areas = worksheet_schema.get_all_input_areas()
 
-            colour = (
-                self._input_area_colour(
-                    input_area
-                )
+        for cell in worksheet.cells:
+
+            status = self._status_for_cell(
+                cell.cell_reference, input_areas
             )
 
-            for cell_reference in (
-                input_area.area_range.iter_cell_references()
-            ):
+            colour = self.STATUS_COLOURS.get(status)
 
-                row, column = (
-                    self._cell_ref_to_indexes(
-                        cell_reference
-                    )
+            if colour is None:
+                continue
+
+            row = cell.row_number - 1
+            column = cell.column_number - 1
+
+            try:
+
+                self.sheet_control.highlight_cells(
+                    row=row,
+                    column=column,
+                    bg=colour,
                 )
 
-                try:
+            except Exception:
+                pass
 
-                    self.sheet_control.highlight_cells(
-                        row=row,
-                        column=column,
-                        bg=colour,
-                    )
+    def _status_for_cell(self, cell_reference, input_areas):
+        best = None
 
-                except Exception:
-                    pass
+        for input_area in input_areas:
+
+            if not input_area.contains_cell(cell_reference):
+                continue
+
+            if input_area.is_deleted:
+                return "removed"
+
+            if input_area.is_ignored:
+                best = best or "ignored"
+                continue
+
+            if (
+                input_area.user_confirmed
+                or input_area.user_created
+            ):
+                return "confirmed"
+
+            best = best or "detected"
+
+        return best or "ignored"
+
+    # ==================================================
+    # TOOLS (click-and-drag zone assignment)
+    # ==================================================
+
+    def _apply_tool_to_selection(self):
+
+        if self.current_sheet_name is None:
+            return
+
+        selection_range = self._get_selection_range()
+
+        if selection_range is None:
+            return
+
+        tool = self.TOOLS.get(self.tool_var.get())
+
+        if tool is None:
+            return
+
+        worksheet_schema = (
+            self.workbook_schema.get_worksheet(
+                self.current_sheet_name
+            )
+        )
+
+        if worksheet_schema is None:
+            return
+
+        overlapping = [
+            input_area
+            for input_area in worksheet_schema.get_all_input_areas()
+            if input_area.area_range.intersects(selection_range)
+        ]
+
+        if overlapping:
+
+            for input_area in overlapping:
+                self._apply_status(input_area, tool)
+
+        else:
+
+            input_area = InputArea(
+                area_name=(
+                    f"{self.current_sheet_name}!"
+                    f"{selection_range.address}"
+                ),
+                sheet_name=self.current_sheet_name,
+                area_range=selection_range,
+                detected_by_ai=False,
+                confidence=1.0,
+            )
+
+            self._apply_status(input_area, tool)
+
+            worksheet_schema.add_input_area(input_area)
+
+        self._load_input_areas()
+        self._refresh_display()
+
+        try:
+            # Clear the selection so it can't be accidentally reused
+            # (e.g. accumulated with a later ctrl+drag) by the next
+            # tool application.
+            self.sheet_control.deselect()
+        except Exception:
+            pass
+
+    def _apply_status(self, input_area, tool):
+        if tool == "confirmed":
+            input_area.confirm()
+
+        elif tool == "removed":
+            input_area.mark_deleted()
+
+        elif tool == "ignored":
+            input_area.mark_ignored()
+
+        elif tool == "detected":
+            input_area.restore()
+            input_area.user_confirmed = False
+            input_area.user_created = False
+
+    def _get_selection_range(self):
+        """
+        Reads the current drag-selected cell rectangle from the grid
+        and converts it to a RangeSchema. Returns None if nothing (or
+        an unusable single point) is selected.
+        """
+
+        if Sheet is None or self.sheet_control is None:
+            return None
+
+        try:
+            min_row, min_col, max_row, max_col = (
+                self.sheet_control.get_selected_min_max()
+            )
+        except Exception:
+            return None
+
+        if min_row is None:
+            return None
+
+        # tksheet's max bound is exclusive.
+        start_cell = self._indexes_to_cell_ref(min_row, min_col)
+        end_cell = self._indexes_to_cell_ref(max_row - 1, max_col - 1)
+
+        return RangeSchema(
+            sheet_name=self.current_sheet_name,
+            start_cell=start_cell,
+            end_cell=end_cell,
+        )
 
     # ==================================================
     # INPUT AREAS
@@ -606,7 +786,7 @@ class WorkbookMapperDialog:
         if worksheet_schema is None:
             return
 
-        for input_area in worksheet_schema.get_active_input_areas():
+        for input_area in worksheet_schema.get_all_input_areas():
 
             item = self.input_area_tree.insert(
                 "",
@@ -620,66 +800,6 @@ class WorkbookMapperDialog:
             self.input_area_lookup[
                 item
             ] = input_area
-
-    def _create_input_area(self):
-
-        range_text = (
-            simpledialog.askstring(
-                "Create Input Area",
-                (
-                    "Enter range\n\n"
-                    "Example:\n"
-                    "A10:H55"
-                ),
-                parent=self.window,
-            )
-        )
-
-        if not range_text:
-            return
-
-        if ":" not in range_text:
-
-            messagebox.showerror(
-                "Invalid Range",
-                "Use A1:H50 format.",
-            )
-
-            return
-
-        start_cell, end_cell = (
-            range_text.split(":")
-        )
-
-        worksheet_schema = (
-            self.workbook_schema.get_worksheet(
-                self.current_sheet_name
-            )
-        )
-
-        input_area = InputArea(
-            area_name=(
-                f"Input Area "
-                f"{len(worksheet_schema.input_areas) + 1}"
-            ),
-            sheet_name=self.current_sheet_name,
-            area_range=RangeSchema(
-                sheet_name=self.current_sheet_name,
-                start_cell=start_cell.strip(),
-                end_cell=end_cell.strip(),
-            ),
-            detected_by_ai=False,
-            user_created=True,
-            user_confirmed=True,
-            confidence=1.0,
-        )
-
-        worksheet_schema.add_input_area(
-            input_area
-        )
-
-        self._load_input_areas()
-        self._refresh_display()
 
     def _edit_input_area(self):
 
@@ -722,7 +842,7 @@ class WorkbookMapperDialog:
         self._load_input_areas()
         self._refresh_display()
 
-    def _delete_input_area(self):
+    def _restore_input_area(self):
 
         input_area = (
             self._selected_input_area()
@@ -731,23 +851,13 @@ class WorkbookMapperDialog:
         if input_area is None:
             return
 
-        input_area.mark_deleted()
+        input_area.restore()
+        input_area.user_confirmed = False
+        input_area.user_created = False
+        input_area.user_modified = False
 
         self._load_input_areas()
         self._refresh_display()
-
-    def _confirm_input_area(self):
-
-        input_area = (
-            self._selected_input_area()
-        )
-
-        if input_area is None:
-            return
-
-        input_area.confirm()
-
-        self._load_input_areas()
 
     def _selected_input_area(self):
 
@@ -864,21 +974,6 @@ class WorkbookMapperDialog:
     def _refresh_display(self):
         self._render_sheet()
 
-    def _input_area_colour(
-        self,
-        input_area,
-    ):
-        if input_area.user_created:
-            return "#D9EAD3"
-
-        if input_area.user_modified:
-            return "#FCE5CD"
-
-        if input_area.user_confirmed:
-            return "#D9EAD3"
-
-        return "#CFE2F3"
-
     def _normalise_colour(
         self,
         colour,
@@ -899,33 +994,6 @@ class WorkbookMapperDialog:
 
         return ""
 
-    def _cell_ref_to_indexes(
-        self,
-        cell_reference,
-    ):
-        col_text = "".join(
-            c
-            for c in cell_reference
-            if c.isalpha()
-        )
-
-        row_text = "".join(
-            c
-            for c in cell_reference
-            if c.isdigit()
-        )
-
-        column = (
-            self._column_to_number(
-                col_text
-            )
-            - 1
-        )
-
-        row = int(row_text) - 1
-
-        return row, column
-
     def _indexes_to_cell_ref(
         self,
         row,
@@ -935,22 +1003,6 @@ class WorkbookMapperDialog:
             f"{self._number_to_column(column + 1)}"
             f"{row + 1}"
         )
-
-    def _column_to_number(
-        self,
-        column_text,
-    ):
-        result = 0
-
-        for character in column_text.upper():
-            result = (
-                result * 26
-                + ord(character)
-                - ord("A")
-                + 1
-            )
-
-        return result
 
     def _number_to_column(
         self,
