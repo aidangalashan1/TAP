@@ -18,10 +18,17 @@ class RuleManagerDialog:
     a change made in this dialog.
     """
 
-    def __init__(self, parent, custom_rules_service, fields):
+    def __init__(
+        self,
+        parent,
+        custom_rules_service,
+        fields,
+        threshold_settings=None,
+    ):
         self.parent = parent
         self.custom_rules_service = custom_rules_service
         self.fields = fields
+        self.threshold_settings = threshold_settings
 
         self.rules = list(custom_rules_service.load_rules())
 
@@ -158,7 +165,23 @@ class RuleManagerDialog:
     # ==================================================
 
     def _new_rule(self):
-        dialog = RuleWizardDialog(self.window, self.fields)
+        default_outlier_method = None
+        default_outlier_tolerance = None
+
+        if self.threshold_settings is not None:
+            default_outlier_method = (
+                self.threshold_settings.default_outlier_method
+            )
+            default_outlier_tolerance = (
+                self.threshold_settings.default_outlier_tolerance
+            )
+
+        dialog = RuleWizardDialog(
+            self.window,
+            self.fields,
+            default_outlier_method=default_outlier_method,
+            default_outlier_tolerance=default_outlier_tolerance,
+        )
 
         result = dialog.show()
 

@@ -49,7 +49,14 @@ class RuleWizardDialog:
         "Z Score": OutlierMethod.Z_SCORE,
     }
 
-    def __init__(self, parent, fields, existing_rule=None):
+    def __init__(
+        self,
+        parent,
+        fields,
+        existing_rule=None,
+        default_outlier_method=None,
+        default_outlier_tolerance=None,
+    ):
         self.parent = parent
         self.fields = sorted(list(fields))
         self.result = None
@@ -75,8 +82,23 @@ class RuleWizardDialog:
         self.quick_duplicates_var = tk.BooleanVar(value=False)
         self.quick_outliers_var = tk.BooleanVar(value=True)
 
-        self.outlier_method_var = tk.StringVar(value="IQR")
-        self.outlier_tolerance_var = tk.StringVar(value="1.5")
+        default_method_label = "IQR"
+
+        if default_outlier_method is not None:
+            for label, value in self.OUTLIER_METHODS.items():
+                if value == default_outlier_method:
+                    default_method_label = label
+                    break
+
+        self.outlier_method_var = tk.StringVar(value=default_method_label)
+
+        self.outlier_tolerance_var = tk.StringVar(
+            value=str(
+                default_outlier_tolerance
+                if default_outlier_tolerance is not None
+                else 1.5
+            )
+        )
 
         self.advanced_type_var = tk.StringVar(value=self.ADVANCED_RULE_TYPES[0])
         self.left_field_var = tk.StringVar()

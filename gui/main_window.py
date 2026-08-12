@@ -10,7 +10,10 @@ import config
 from gui.workbook_mapper_dialog import WorkbookMapperDialog
 from gui.mapping_profile_dialog import MappingProfileDialog
 from gui.rule_manager_dialog import RuleManagerDialog
+from gui.threshold_settings_dialog import ThresholdSettingsDialog
 
+from rules.cross_supplier_comparator import CrossSupplierComparator
+from rules.threshold_settings import ThresholdSettingsStore
 from services.analysis_service import AnalysisService
 from services.custom_rules_service import CustomRulesService
 from services.mapping_profile_service import MappingProfileService
@@ -32,6 +35,9 @@ class MainWindow:
         self.custom_rules_service = CustomRulesService()
         self.mapping_profile_service = MappingProfileService()
         self.workbook_loader_service = WorkbookLoaderService()
+        self.threshold_settings_store = ThresholdSettingsStore()
+
+        self.threshold_settings = self.threshold_settings_store.load()
 
         self.template_file = ""
         self.benchmark_file = ""
@@ -161,7 +167,10 @@ class MainWindow:
                 "catch blanks, zeroes, duplicates, and outliers in "
                 "supplier responses."
             ),
-            buttons=[("Manage Rules...", self._manage_rules)],
+            buttons=[
+                ("Manage Rules...", self._manage_rules),
+                ("Threshold Settings...", self._open_threshold_settings),
+            ],
         )
 
         self._build_step(
@@ -591,6 +600,7 @@ class MainWindow:
             self.root,
             self.custom_rules_service,
             fields,
+            threshold_settings=self.threshold_settings,
         )
 
         self.custom_rules = dialog.show()
@@ -599,6 +609,29 @@ class MainWindow:
 
         self._log(
             f"{len(self.custom_rules)} rule(s) saved"
+        )
+
+    def _open_threshold_settings(self):
+
+        dialog = ThresholdSettingsDialog(
+            self.root,
+            self.threshold_settings,
+        )
+
+        result = dialog.show()
+
+        if result is None:
+            return
+
+        self.threshold_settings = result
+        self.threshold_settings_store.save(self.threshold_settings)
+
+        self._log(
+            "Threshold settings saved: "
+            f"benchmark {self.threshold_settings.benchmark_threshold_percent}%, "
+            f"outlier method "
+            f"{self.threshold_settings.default_outlier_method.value}, "
+            f"tolerance {self.threshold_settings.default_outlier_tolerance}"
         )
 
     # ==================================================
@@ -682,6 +715,20 @@ class MainWindow:
         self._log(
             f"Running analysis on {len(supplier_workbooks)} "
             f"supplier workbook(s), comparing {comparison_mode}."
+        )
+
+        self.analysis_service.cross_supplier_comparator = (
+            CrossSupplierComparator(
+                benchmark_threshold_percent=(
+                    self.threshold_settings.benchmark_threshold_percent
+                ),
+                outlier_method=(
+                    self.threshold_settings.default_outlier_method
+                ),
+                outlier_tolerance=(
+                    self.threshold_settings.default_outlier_tolerance
+                ),
+            )
         )
 
         try:
