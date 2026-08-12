@@ -52,10 +52,69 @@ class ReportWriter:
         worksheet["A1"] = "Supplier"
         worksheet["B1"] = supplier_result.supplier_name
 
+        actionable_findings = [
+            finding
+            for finding in supplier_result.findings
+            if not getattr(finding, "expected_discrepancy", False)
+        ]
+
+        expected_findings = [
+            finding
+            for finding in supplier_result.findings
+            if getattr(finding, "expected_discrepancy", False)
+        ]
+
         worksheet["A3"] = "Total Findings"
-        worksheet["B3"] = len(
-            supplier_result.findings
+        worksheet["B3"] = len(supplier_result.findings)
+
+        worksheet["A4"] = "Actionable (excludes flagged sheets)"
+        worksheet["B4"] = len(actionable_findings)
+
+        worksheet["A5"] = (
+            "On Sheets Flagged 'Discrepancies Expected'"
         )
+        worksheet["B5"] = len(expected_findings)
+
+        row = self._write_severity_table(
+            worksheet,
+            row=7,
+            title="Actionable Findings by Severity",
+            findings=actionable_findings,
+        )
+
+        row = self._write_severity_table(
+            worksheet,
+            row=row + 1,
+            title="Expected-Sheet Findings by Severity",
+            findings=expected_findings,
+        )
+
+        self._write_category_table(
+            worksheet,
+            row=row + 1,
+            findings=supplier_result.findings,
+        )
+
+        self._bold_row(worksheet, 1)
+
+        worksheet.column_dimensions["A"].width = 40
+        worksheet.column_dimensions["B"].width = 20
+
+    def _write_severity_table(
+        self,
+        worksheet,
+        row,
+        title,
+        findings,
+    ):
+        worksheet.cell(row=row, column=1).value = title
+        self._bold_row(worksheet, row)
+
+        row += 1
+
+        worksheet.cell(row=row, column=1).value = "Severity"
+        worksheet.cell(row=row, column=2).value = "Count"
+        self._bold_row(worksheet, row)
 
         severity_counts = {
             "HIGH": 0,
@@ -64,51 +123,45 @@ class ReportWriter:
             "INFO": 0,
         }
 
-        for finding in supplier_result.findings:
-            severity_name = self._severity_name(
-                finding.severity
-            )
-
-            severity_counts.setdefault(
-                severity_name,
-                0
-            )
-
-            severity_counts[
-                severity_name
-            ] += 1
-
-        worksheet["A5"] = "Severity"
-        worksheet["B5"] = "Count"
-
-        row = 6
+        for finding in findings:
+            severity_name = self._severity_name(finding.severity)
+            severity_counts.setdefault(severity_name, 0)
+            severity_counts[severity_name] += 1
 
         for severity_name, count in severity_counts.items():
-
-            worksheet.cell(
-                row=row,
-                column=1
-            ).value = severity_name
-
-            worksheet.cell(
-                row=row,
-                column=2
-            ).value = count
-
             row += 1
+            worksheet.cell(row=row, column=1).value = severity_name
+            worksheet.cell(row=row, column=2).value = count
 
-        self._bold_row(
-            worksheet,
-            1
-        )
+        return row
 
-        self._bold_row(
-            worksheet,
-            5
-        )
+    def _write_category_table(
+        self,
+        worksheet,
+        row,
+        findings,
+    ):
+        worksheet.cell(row=row, column=1).value = "Findings by Category"
+        self._bold_row(worksheet, row)
 
-        worksheet.column_dimensions["A"].width = 25
-        worksheet.column_dimensions["B"].width = 20
+        row += 1
+
+        worksheet.cell(row=row, column=1).value = "Category"
+        worksheet.cell(row=row, column=2).value = "Count"
+        self._bold_row(worksheet, row)
+
+        category_counts = {}
+
+        for finding in findings:
+            category = getattr(finding, "category", "") or "Uncategorised"
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+        for category, count in category_counts.items():
+            row += 1
+            worksheet.cell(row=row, column=1).value = category
+            worksheet.cell(row=row, column=2).value = count
+
+        return row
 
     def _write_findings_sheet(
         self,
@@ -117,6 +170,8 @@ class ReportWriter:
     ):
         headers = [
             "Severity",
+            "Category",
+            "Expected?",
             "Worksheet",
             "Cell",
             "Region",
@@ -158,13 +213,31 @@ class ReportWriter:
                 column=2
             ).value = getattr(
                 finding,
-                "worksheet_name",
+                "category",
                 ""
             )
 
             worksheet.cell(
                 row=row_number,
                 column=3
+            ).value = (
+                "Yes"
+                if getattr(finding, "expected_discrepancy", False)
+                else "No"
+            )
+
+            worksheet.cell(
+                row=row_number,
+                column=4
+            ).value = getattr(
+                finding,
+                "worksheet_name",
+                ""
+            )
+
+            worksheet.cell(
+                row=row_number,
+                column=5
             ).value = getattr(
                 finding,
                 "cell_reference",
@@ -174,7 +247,7 @@ class ReportWriter:
             # item_description now stores region/context
             worksheet.cell(
                 row=row_number,
-                column=4
+                column=6
             ).value = getattr(
                 finding,
                 "item_description",
@@ -183,7 +256,7 @@ class ReportWriter:
 
             worksheet.cell(
                 row=row_number,
-                column=5
+                column=7
             ).value = getattr(
                 finding,
                 "actual_value",
@@ -198,7 +271,7 @@ class ReportWriter:
 
             worksheet.cell(
                 row=row_number,
-                column=6
+                column=8
             ).value = getattr(
                 finding,
                 "comparator_label",
@@ -207,7 +280,7 @@ class ReportWriter:
 
             worksheet.cell(
                 row=row_number,
-                column=7
+                column=9
             ).value = (
                 comparator_value
                 if comparator_value is not None
@@ -216,7 +289,7 @@ class ReportWriter:
 
             worksheet.cell(
                 row=row_number,
-                column=8
+                column=10
             ).value = getattr(
                 finding,
                 "deviation_percent",
@@ -225,7 +298,7 @@ class ReportWriter:
 
             worksheet.cell(
                 row=row_number,
-                column=9
+                column=11
             ).value = getattr(
                 finding,
                 "reason",
@@ -234,7 +307,7 @@ class ReportWriter:
 
             worksheet.cell(
                 row=row_number,
-                column=10
+                column=12
             ).value = getattr(
                 finding,
                 "suggested_clarification",
@@ -252,15 +325,17 @@ class ReportWriter:
 
         widths = {
             "A": 15,
-            "B": 25,
-            "C": 15,
-            "D": 35,
-            "E": 20,
-            "F": 28,
+            "B": 26,
+            "C": 11,
+            "D": 25,
+            "E": 15,
+            "F": 35,
             "G": 20,
-            "H": 15,
-            "I": 60,
-            "J": 60,
+            "H": 28,
+            "I": 20,
+            "J": 15,
+            "K": 60,
+            "L": 60,
         }
 
         for column, width in widths.items():

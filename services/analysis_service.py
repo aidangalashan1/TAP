@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from models.pricing_models import Finding
+from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 from models.pricing_models import SupplierAnalysisResult
 from reporting.report_writer import ReportWriter
@@ -124,6 +125,8 @@ class AnalysisService:
                 + comparison_findings_by_supplier.get(supplier_name, [])
             )
 
+            self._flag_expected_discrepancies(findings, workbook_schema)
+
             supplier_result = SupplierAnalysisResult(
                 supplier_name=supplier_name,
                 findings=findings,
@@ -164,6 +167,7 @@ class AnalysisService:
                 cell_reference="",
                 item_description="Missing worksheet(s)",
                 actual_value="",
+                category=FindingCategory.MISSING_WORKSHEET.value,
                 reason=(
                     f"This workbook is missing worksheet(s) the template "
                     f"expects: {sheet_list}. Fields on those sheets could "
@@ -176,6 +180,15 @@ class AnalysisService:
                 ),
             )
         ]
+
+    def _flag_expected_discrepancies(self, findings, workbook_schema):
+        for finding in findings:
+            worksheet_schema = workbook_schema.get_worksheet(
+                finding.worksheet_name
+            )
+
+            if worksheet_schema is not None and worksheet_schema.expect_discrepancies:
+                finding.expected_discrepancy = True
 
     def get_missing_sheets(self, workbook, workbook_schema):
         return self.schema_service.get_missing_sheets(

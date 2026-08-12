@@ -6,6 +6,7 @@ from statistics import pstdev
 
 import config
 from models.pricing_models import Finding
+from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 from rules.custom_rule_models import ComparisonBasis
 from rules.custom_rule_models import OutlierMethod
@@ -207,6 +208,7 @@ class CrossSupplierComparator:
                                 f"{record.record_reference} | {field_name}"
                             ),
                             actual_value=str(round(actual, 2)),
+                            category=FindingCategory.BENCHMARK_COMPARISON.value,
                             comparator_value=str(round(benchmark_number, 2)),
                             comparator_label=comparator_label,
                             deviation_percent=round(deviation_percent, 2),
@@ -420,6 +422,7 @@ class CrossSupplierComparator:
             cell_reference=record.get_cell_reference(field_name),
             item_description=f"{record.record_reference} | {field_name}",
             actual_value=str(round(value, 2)),
+            category=FindingCategory.BETWEEN_RESPONSE_COMPARISON.value,
             comparator_value=str(round(comparator_value, 2)),
             comparator_label=comparator_label,
             deviation_percent=None,

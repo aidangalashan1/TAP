@@ -132,7 +132,21 @@ class MappingProfileService:
             )
         )
 
+        saved_sheet_settings = profile_data.get(
+            "sheet_settings",
+            {},
+        )
+
         for worksheet_schema in workbook_schema.worksheets.values():
+
+            sheet_settings = saved_sheet_settings.get(
+                worksheet_schema.sheet_name
+            )
+
+            if sheet_settings is not None:
+                worksheet_schema.expect_discrepancies = bool(
+                    sheet_settings.get("expect_discrepancies")
+                )
 
             for input_area in worksheet_schema.input_areas:
 
@@ -253,9 +267,14 @@ class MappingProfileService:
         data = {
             "workbook_name": workbook_schema.workbook_name,
             "input_areas": {},
+            "sheet_settings": {},
         }
 
         for worksheet_schema in workbook_schema.worksheets.values():
+
+            data["sheet_settings"][worksheet_schema.sheet_name] = {
+                "expect_discrepancies": worksheet_schema.expect_discrepancies,
+            }
 
             for input_area in worksheet_schema.get_all_input_areas():
 

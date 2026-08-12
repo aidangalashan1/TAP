@@ -5,6 +5,7 @@ from statistics import mean
 from statistics import pstdev
 
 from models.pricing_models import Finding
+from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 
 from rules.custom_rule_models import (
@@ -434,6 +435,7 @@ class SchemaRuleEngine:
             item_description=f"{record.region_name} | {field_name}",
             actual_value="" if value is None else str(value),
             reason=reason,
+            category=FindingCategory.TENDER_RESPONSE_CHECK.value,
             comparator_value=None,
             deviation_percent=None,
             suggested_clarification=(
