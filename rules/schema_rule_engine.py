@@ -32,10 +32,13 @@ class SchemaRuleEngine:
                 findings.extend(
                     self._execute_quick_rules(records, rule)
                 )
-            else:
+            elif rule.rule_type == CustomRuleType.ADVANCED_RULE:
                 findings.extend(
                     self._execute_advanced_rule(records, rule)
                 )
+            # COMPARISON_RULE rules compare across supplier workbooks
+            # and are executed separately by CrossSupplierComparator,
+            # not against a single supplier's records here.
 
         return findings
 

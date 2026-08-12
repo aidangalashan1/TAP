@@ -7,6 +7,7 @@ from statistics import pstdev
 import config
 from models.pricing_models import Finding
 from models.pricing_models import Severity
+from rules.custom_rule_models import ComparisonBasis
 from rules.custom_rule_models import OutlierMethod
 
 
@@ -32,22 +33,138 @@ class CrossSupplierComparator:
         self.outlier_tolerance = outlier_tolerance
 
     # ==================================================
+    # Rule-Driven Comparison
+    # ==================================================
+
+    def compare_using_rules(
+        self,
+        supplier_records,
+        benchmark_records,
+        comparison_rules,
+        use_benchmark_default,
+    ):
+        """
+        Runs each enabled COMPARISON_RULE rule's own scoped comparison
+        (its sheet/field scope, with its own threshold/tolerance
+        override where set), then runs the default comparison for
+        every field not covered by one of those rules.
+
+        comparison_rules: CustomRule list already filtered to enabled,
+        rule_type == COMPARISON_RULE.
+        use_benchmark_default: whether the uncovered-field default
+        pass should compare to the benchmark (True) or statistically
+        between responses (False) - mirrors the existing behaviour of
+        picking one when no rule says otherwise.
+        """
+
+        benchmark_rules = [
+            rule
+            for rule in comparison_rules
+            if rule.comparison_basis == ComparisonBasis.BENCHMARK
+        ]
+
+        between_response_rules = [
+            rule
+            for rule in comparison_rules
+            if rule.comparison_basis == ComparisonBasis.BETWEEN_RESPONSES
+        ]
+
+        findings = []
+
+        if benchmark_records is not None:
+            for rule in benchmark_rules:
+                findings.extend(
+                    self.compare_to_benchmark(
+                        supplier_records,
+                        benchmark_records,
+                        threshold_percent=rule.comparison_threshold_percent,
+                        sheet_name=rule.sheet_name,
+                        field_names=rule.target_fields or None,
+                        rule_label=rule.name,
+                    )
+                )
+
+        for rule in between_response_rules:
+            findings.extend(
+                self.compare_statistical(
+                    supplier_records,
+                    outlier_method=rule.outlier_method,
+                    outlier_tolerance=rule.outlier_tolerance,
+                    sheet_name=rule.sheet_name,
+                    field_names=rule.target_fields or None,
+                    rule_label=rule.name,
+                )
+            )
+
+        if use_benchmark_default and benchmark_records is not None:
+            findings.extend(
+                self.compare_to_benchmark(
+                    supplier_records,
+                    benchmark_records,
+                    excluded_rules=benchmark_rules,
+                )
+            )
+        elif not use_benchmark_default:
+            findings.extend(
+                self.compare_statistical(
+                    supplier_records,
+                    excluded_rules=between_response_rules,
+                )
+            )
+
+        return findings
+
+    # ==================================================
     # Benchmark Comparison
     # ==================================================
 
-    def compare_to_benchmark(self, supplier_records, benchmark_records):
+    def compare_to_benchmark(
+        self,
+        supplier_records,
+        benchmark_records,
+        threshold_percent=None,
+        sheet_name=None,
+        field_names=None,
+        excluded_rules=None,
+        rule_label=None,
+    ):
         """
         supplier_records: dict[supplier_name, list[DataRecord]]
         benchmark_records: list[DataRecord]
+
+        threshold_percent/sheet_name/field_names: when given, scopes
+        this call to a single comparison rule - only that sheet
+        and/or those fields are compared, using this threshold
+        instead of the comparator's default.
+
+        excluded_rules: comparison rules (already run separately via
+        their own scoped call) to skip here, so the default pass
+        doesn't double-flag fields a rule already covers.
         """
 
         benchmark_lookup = self._index_by_key(benchmark_records)
+
+        threshold = (
+            threshold_percent
+            if threshold_percent is not None
+            else self.benchmark_threshold_percent
+        )
 
         findings = []
 
         for supplier_name, records in supplier_records.items():
             for record in records:
                 for field_name, raw_value in record.values.items():
+
+                    if not self._matches_scope(
+                        record.sheet_name, field_name, sheet_name, field_names
+                    ):
+                        continue
+
+                    if excluded_rules and self._covered_by_any(
+                        excluded_rules, record.sheet_name, field_name
+                    ):
+                        continue
 
                     key = self._key(record, field_name)
                     benchmark_value = benchmark_lookup.get(key)
@@ -68,8 +185,13 @@ class CrossSupplierComparator:
                         abs(actual - benchmark_number) / benchmark_number
                     ) * 100
 
-                    if deviation_percent < self.benchmark_threshold_percent:
+                    if deviation_percent < threshold:
                         continue
+
+                    comparator_label = "Benchmark Rate"
+
+                    if rule_label:
+                        comparator_label = f"Benchmark Rate (rule: {rule_label})"
 
                     findings.append(
                         Finding(
@@ -86,7 +208,7 @@ class CrossSupplierComparator:
                             ),
                             actual_value=str(round(actual, 2)),
                             comparator_value=str(round(benchmark_number, 2)),
-                            comparator_label="Benchmark Rate",
+                            comparator_label=comparator_label,
                             deviation_percent=round(deviation_percent, 2),
                             reason=(
                                 f"Value differs from benchmark by "
@@ -108,16 +230,56 @@ class CrossSupplierComparator:
     # Cross-Supplier Statistical Comparison
     # ==================================================
 
-    def compare_statistical(self, supplier_records):
+    def compare_statistical(
+        self,
+        supplier_records,
+        outlier_method=None,
+        outlier_tolerance=None,
+        sheet_name=None,
+        field_names=None,
+        excluded_rules=None,
+        rule_label=None,
+    ):
         """
         supplier_records: dict[supplier_name, list[DataRecord]]
+
+        outlier_method/outlier_tolerance/sheet_name/field_names: when
+        given, scopes this call to a single comparison rule - only
+        that sheet and/or those fields are compared, using this
+        method/tolerance instead of the comparator's default.
+
+        excluded_rules: comparison rules (already run separately via
+        their own scoped call) to skip here, so the default pass
+        doesn't double-flag fields a rule already covers.
         """
+
+        method = (
+            outlier_method
+            if outlier_method is not None
+            else self.outlier_method
+        )
+
+        tolerance = (
+            outlier_tolerance
+            if outlier_tolerance is not None
+            else self.outlier_tolerance
+        )
 
         groups = {}
 
         for supplier_name, records in supplier_records.items():
             for record in records:
                 for field_name, raw_value in record.values.items():
+
+                    if not self._matches_scope(
+                        record.sheet_name, field_name, sheet_name, field_names
+                    ):
+                        continue
+
+                    if excluded_rules and self._covered_by_any(
+                        excluded_rules, record.sheet_name, field_name
+                    ):
+                        continue
 
                     numeric_value = self._to_float_or_none(raw_value)
 
@@ -137,14 +299,18 @@ class CrossSupplierComparator:
             if len(entries) < 3:
                 continue
 
-            if self.outlier_method == OutlierMethod.Z_SCORE:
-                findings.extend(self._z_score_outliers(entries))
+            if method == OutlierMethod.Z_SCORE:
+                findings.extend(
+                    self._z_score_outliers(entries, tolerance, rule_label)
+                )
             else:
-                findings.extend(self._iqr_outliers(entries))
+                findings.extend(
+                    self._iqr_outliers(entries, tolerance, rule_label)
+                )
 
         return findings
 
-    def _z_score_outliers(self, entries):
+    def _z_score_outliers(self, entries, tolerance, rule_label=None):
         values = [entry[3] for entry in entries]
 
         average = mean(values)
@@ -155,11 +321,18 @@ class CrossSupplierComparator:
 
         findings = []
 
+        comparator_label = "Supplier Group Average (Z-Score)"
+
+        if rule_label:
+            comparator_label = (
+                f"Supplier Group Average (Z-Score, rule: {rule_label})"
+            )
+
         for supplier_name, record, field_name, value in entries:
 
             z_score = abs((value - average) / standard_deviation)
 
-            if z_score < self.outlier_tolerance:
+            if z_score < tolerance:
                 continue
 
             findings.append(
@@ -169,8 +342,8 @@ class CrossSupplierComparator:
                     field_name=field_name,
                     value=value,
                     comparator_value=average,
-                    comparator_label="Supplier Group Average (Z-Score)",
-                    severity=self._severity_for_z_score(z_score),
+                    comparator_label=comparator_label,
+                    severity=self._severity_for_z_score(z_score, tolerance),
                     reason=(
                         f"Value differs from the supplier group average "
                         f"({round(average, 2)}) by a Z score of "
@@ -181,7 +354,7 @@ class CrossSupplierComparator:
 
         return findings
 
-    def _iqr_outliers(self, entries):
+    def _iqr_outliers(self, entries, tolerance, rule_label=None):
         values = sorted(entry[3] for entry in entries)
 
         if len(values) < 4:
@@ -195,10 +368,15 @@ class CrossSupplierComparator:
         if iqr == 0:
             return []
 
-        lower_bound = q1 - (self.outlier_tolerance * iqr)
-        upper_bound = q3 + (self.outlier_tolerance * iqr)
+        lower_bound = q1 - (tolerance * iqr)
+        upper_bound = q3 + (tolerance * iqr)
 
         findings = []
+
+        comparator_label = "Supplier Group Median (IQR)"
+
+        if rule_label:
+            comparator_label = f"Supplier Group Median (IQR, rule: {rule_label})"
 
         for supplier_name, record, field_name, value in entries:
 
@@ -212,7 +390,7 @@ class CrossSupplierComparator:
                     field_name=field_name,
                     value=value,
                     comparator_value=(q1 + q3) / 2,
-                    comparator_label="Supplier Group Median (IQR)",
+                    comparator_label=comparator_label,
                     severity=Severity.MEDIUM,
                     reason=(
                         f"Value is outside the expected supplier group "
@@ -280,11 +458,32 @@ class CrossSupplierComparator:
 
         return Severity.INFO
 
-    def _severity_for_z_score(self, z_score):
-        if z_score >= self.outlier_tolerance * 1.5:
+    def _severity_for_z_score(self, z_score, tolerance):
+        if z_score >= tolerance * 1.5:
             return Severity.HIGH
 
         return Severity.MEDIUM
+
+    def _matches_scope(self, sheet_name, field_name, scope_sheet_name, scope_field_names):
+        if scope_sheet_name and sheet_name != scope_sheet_name:
+            return False
+
+        if scope_field_names and field_name not in scope_field_names:
+            return False
+
+        return True
+
+    def _covered_by_any(self, rules, sheet_name, field_name):
+        for rule in rules:
+            if rule.sheet_name and rule.sheet_name != sheet_name:
+                continue
+
+            if rule.target_fields and field_name not in rule.target_fields:
+                continue
+
+            return True
+
+        return False
 
     def _to_float_or_none(self, value):
         if value is None:

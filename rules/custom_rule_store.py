@@ -5,6 +5,7 @@ from pathlib import Path
 
 import config
 from rules.custom_rule_models import (
+    ComparisonBasis,
     CustomRule,
     CustomRuleCondition,
     CustomRuleMatchMode,
@@ -107,6 +108,14 @@ class CustomRuleStore:
                 ),
                 outlier_tolerance=float(data.get("outlier_tolerance", 1.5)),
                 target_fields=data.get("target_fields", []),
+                comparison_basis=self._parse_comparison_basis(
+                    data.get("comparison_basis")
+                ),
+                comparison_threshold_percent=(
+                    float(data["comparison_threshold_percent"])
+                    if data.get("comparison_threshold_percent") is not None
+                    else None
+                ),
             )
 
         except Exception:
@@ -131,6 +140,14 @@ class CustomRuleStore:
             "outlier_method": self._enum_value(rule.outlier_method),
             "outlier_tolerance": rule.outlier_tolerance,
             "target_fields": rule.target_fields,
+            "comparison_basis": (
+                self._enum_value(rule.comparison_basis)
+                if rule.comparison_basis is not None
+                else None
+            ),
+            "comparison_threshold_percent": (
+                rule.comparison_threshold_percent
+            ),
             "conditions": [
                 {
                     "left_field": condition.left_field,
@@ -185,3 +202,12 @@ class CustomRuleStore:
             return OutlierMethod(str(value))
         except ValueError:
             return OutlierMethod.IQR
+
+    def _parse_comparison_basis(self, value):
+        if value is None:
+            return None
+
+        try:
+            return ComparisonBasis(str(value))
+        except ValueError:
+            return None

@@ -9,6 +9,7 @@ from models.pricing_models import Severity
 from models.pricing_models import SupplierAnalysisResult
 from reporting.report_writer import ReportWriter
 from rules.cross_supplier_comparator import CrossSupplierComparator
+from rules.custom_rule_models import CustomRuleType
 from services.custom_rules_service import CustomRulesService
 from services.schema_service import SchemaService
 
@@ -94,6 +95,7 @@ class AnalysisService:
                 supplier_records=supplier_records,
                 benchmark_workbook=benchmark_workbook,
                 workbook_schema=workbook_schema,
+                custom_rules=custom_rules,
             )
         )
 
@@ -186,28 +188,31 @@ class AnalysisService:
         supplier_records,
         benchmark_workbook,
         workbook_schema,
+        custom_rules=None,
     ):
-        if benchmark_workbook is not None:
+        benchmark_records = None
 
+        if benchmark_workbook is not None:
             benchmark_records = self.schema_service.build_records(
                 benchmark_workbook,
                 workbook_schema,
             )
 
-            comparison_findings = (
-                self.cross_supplier_comparator.compare_to_benchmark(
-                    supplier_records=supplier_records,
-                    benchmark_records=benchmark_records,
-                )
-            )
+        comparison_rules = [
+            rule
+            for rule in (custom_rules or [])
+            if rule.enabled
+            and rule.rule_type == CustomRuleType.COMPARISON_RULE
+        ]
 
-        else:
-
-            comparison_findings = (
-                self.cross_supplier_comparator.compare_statistical(
-                    supplier_records=supplier_records,
-                )
+        comparison_findings = (
+            self.cross_supplier_comparator.compare_using_rules(
+                supplier_records=supplier_records,
+                benchmark_records=benchmark_records,
+                comparison_rules=comparison_rules,
+                use_benchmark_default=benchmark_workbook is not None,
             )
+        )
 
         findings_by_supplier = defaultdict(list)
 

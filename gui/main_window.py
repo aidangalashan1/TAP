@@ -596,11 +596,16 @@ class MainWindow:
             )
         )
 
+        sheet_names = self.schema_service.get_sheet_names(
+            self.workbook_schema
+        )
+
         dialog = RuleManagerDialog(
             self.root,
             self.custom_rules_service,
             fields,
             threshold_settings=self.threshold_settings,
+            sheet_names=sheet_names,
         )
 
         self.custom_rules = dialog.show()

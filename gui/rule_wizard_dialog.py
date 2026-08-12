@@ -5,6 +5,7 @@ from tkinter import messagebox
 from tkinter import ttk
 
 from rules.custom_rule_models import (
+    ComparisonBasis,
     CustomRule,
     CustomRuleCondition,
     CustomRuleMatchMode,
@@ -49,6 +50,13 @@ class RuleWizardDialog:
         "Z Score": OutlierMethod.Z_SCORE,
     }
 
+    COMPARISON_BASIS_OPTIONS = {
+        "Compare vs Benchmark Rate": ComparisonBasis.BENCHMARK,
+        "Compare Between Supplier Responses": ComparisonBasis.BETWEEN_RESPONSES,
+    }
+
+    ALL_SHEETS_LABEL = "All Sheets"
+
     def __init__(
         self,
         parent,
@@ -56,9 +64,13 @@ class RuleWizardDialog:
         existing_rule=None,
         default_outlier_method=None,
         default_outlier_tolerance=None,
+        sheet_names=None,
     ):
         self.parent = parent
         self.fields = sorted(list(fields))
+        self.sheet_names = [self.ALL_SHEETS_LABEL] + sorted(
+            list(sheet_names or [])
+        )
         self.result = None
         self.existing_rule = existing_rule
 
@@ -108,6 +120,15 @@ class RuleWizardDialog:
         self.minimum_value_var = tk.StringVar()
         self.maximum_value_var = tk.StringVar()
 
+        self.comparison_basis_var = tk.StringVar(
+            value=list(self.COMPARISON_BASIS_OPTIONS.keys())[0]
+        )
+        self.comparison_sheet_var = tk.StringVar(value=self.ALL_SHEETS_LABEL)
+        self.comparison_threshold_var = tk.StringVar()
+        self.comparison_field_listbox = None
+        self.comparison_body_frame = None
+        self._pending_target_fields = []
+
         self.body_frame = None
 
         if existing_rule is not None:
@@ -151,8 +172,37 @@ class RuleWizardDialog:
 
             return
 
+        if rule.rule_type == CustomRuleType.COMPARISON_RULE:
+            self.mode_var.set("Comparison Rule")
+            self._load_existing_comparison_rule(rule)
+            return
+
         self.mode_var.set("Advanced Rule")
         self._load_existing_advanced_rule(rule)
+
+    def _load_existing_comparison_rule(self, rule):
+        for label, value in self.COMPARISON_BASIS_OPTIONS.items():
+            if value == rule.comparison_basis:
+                self.comparison_basis_var.set(label)
+                break
+
+        self.comparison_sheet_var.set(
+            rule.sheet_name or self.ALL_SHEETS_LABEL
+        )
+
+        if rule.comparison_threshold_percent is not None:
+            self.comparison_threshold_var.set(
+                str(rule.comparison_threshold_percent)
+            )
+
+        self.outlier_tolerance_var.set(str(rule.outlier_tolerance))
+
+        for label, value in self.OUTLIER_METHODS.items():
+            if value == rule.outlier_method:
+                self.outlier_method_var.set(label)
+                break
+
+        self._pending_target_fields = list(rule.target_fields)
 
     def _load_existing_advanced_rule(self, rule):
         conditions = rule.conditions
@@ -241,6 +291,14 @@ class RuleWizardDialog:
             text="Advanced Rule",
             variable=self.mode_var,
             value="Advanced Rule",
+            command=self._refresh_body,
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Radiobutton(
+            frame,
+            text="Comparison Rule",
+            variable=self.mode_var,
+            value="Comparison Rule",
             command=self._refresh_body,
         ).pack(side=tk.LEFT, padx=5)
 
@@ -334,8 +392,12 @@ class RuleWizardDialog:
         for widget in self.body_frame.winfo_children():
             widget.destroy()
 
-        if self.mode_var.get() == "Quick Rules":
+        mode = self.mode_var.get()
+
+        if mode == "Quick Rules":
             self._build_quick_rules_body()
+        elif mode == "Comparison Rule":
+            self._build_comparison_rule_body()
         else:
             self._build_advanced_rules_body()
 
@@ -428,6 +490,127 @@ class RuleWizardDialog:
             padx=5,
             pady=5,
         )
+
+    # ==================================================
+    # Comparison Rule UI
+    # ==================================================
+
+    def _build_comparison_rule_body(self):
+        ttk.Label(
+            self.body_frame,
+            text=(
+                "Scopes a benchmark or between-response comparison to "
+                "a specific sheet and/or fields, optionally overriding "
+                "the global default threshold for just that scope. "
+                "Leave threshold/tolerance blank to use the global "
+                "default from Threshold Settings."
+            ),
+            wraplength=780,
+        ).pack(anchor="w", pady=(0, 10))
+
+        basis_row = ttk.Frame(self.body_frame)
+        basis_row.pack(anchor="w", pady=(0, 8), fill=tk.X)
+
+        ttk.Label(basis_row, text="Compare:").grid(
+            row=0, column=0, sticky="w", padx=5, pady=5
+        )
+
+        basis_combo = ttk.Combobox(
+            basis_row,
+            textvariable=self.comparison_basis_var,
+            values=list(self.COMPARISON_BASIS_OPTIONS.keys()),
+            state="readonly",
+            width=32,
+        )
+        basis_combo.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        basis_combo.bind(
+            "<<ComboboxSelected>>", self._refresh_comparison_basis_body
+        )
+
+        ttk.Label(basis_row, text="Sheet:").grid(
+            row=0, column=2, sticky="w", padx=(20, 5), pady=5
+        )
+
+        ttk.Combobox(
+            basis_row,
+            textvariable=self.comparison_sheet_var,
+            values=self.sheet_names,
+            state="readonly",
+            width=25,
+        ).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        fields_frame = ttk.LabelFrame(
+            self.body_frame,
+            text="Target Fields (none selected = all fields)",
+            padding=5,
+        )
+        fields_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.comparison_field_listbox = tk.Listbox(
+            fields_frame,
+            selectmode=tk.EXTENDED,
+            height=6,
+            exportselection=False,
+        )
+        self.comparison_field_listbox.pack(fill=tk.X)
+
+        for field_name in self.fields:
+            self.comparison_field_listbox.insert(tk.END, field_name)
+
+        for index, field_name in enumerate(self.fields):
+            if field_name in self._pending_target_fields:
+                self.comparison_field_listbox.selection_set(index)
+
+        self.comparison_body_frame = ttk.Frame(self.body_frame)
+        self.comparison_body_frame.pack(fill=tk.X)
+
+        self._refresh_comparison_basis_body()
+
+    def _refresh_comparison_basis_body(self, event=None):
+        for widget in self.comparison_body_frame.winfo_children():
+            widget.destroy()
+
+        basis = self.COMPARISON_BASIS_OPTIONS.get(
+            self.comparison_basis_var.get()
+        )
+
+        if basis == ComparisonBasis.BENCHMARK:
+            ttk.Label(
+                self.comparison_body_frame,
+                text="Threshold override (%):",
+            ).grid(row=0, column=0, sticky="w", padx=5, pady=5)
+
+            ttk.Entry(
+                self.comparison_body_frame,
+                textvariable=self.comparison_threshold_var,
+                width=10,
+            ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+        else:
+            ttk.Label(
+                self.comparison_body_frame,
+                text="Outlier method",
+            ).grid(row=0, column=0, sticky="w", padx=5, pady=5)
+
+            ttk.Combobox(
+                self.comparison_body_frame,
+                textvariable=self.outlier_method_var,
+                values=list(self.OUTLIER_METHODS.keys()),
+                state="readonly",
+                width=20,
+            ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+            ttk.Label(
+                self.comparison_body_frame,
+                text="Tolerance",
+            ).grid(row=0, column=2, sticky="w", padx=(20, 5), pady=5)
+
+            ttk.Combobox(
+                self.comparison_body_frame,
+                textvariable=self.outlier_tolerance_var,
+                values=["1.5", "2", "2.5", "3"],
+                width=10,
+            ).grid(row=0, column=3, sticky="w", padx=5, pady=5)
 
     # ==================================================
     # Advanced Rules UI
@@ -545,8 +728,12 @@ class RuleWizardDialog:
     # ==================================================
 
     def _create_rule(self):
-        if self.mode_var.get() == "Quick Rules":
+        mode = self.mode_var.get()
+
+        if mode == "Quick Rules":
             new_rule = self._create_quick_rule()
+        elif mode == "Comparison Rule":
+            new_rule = self._create_comparison_rule()
         else:
             new_rule = self._create_advanced_rule()
 
@@ -594,6 +781,73 @@ class RuleWizardDialog:
             outlier_method=self.OUTLIER_METHODS[self.outlier_method_var.get()],
             outlier_tolerance=tolerance,
             target_fields=[],
+        )
+
+    def _create_comparison_rule(self):
+        rule_name = self.rule_name_var.get().strip()
+        basis = self.COMPARISON_BASIS_OPTIONS.get(
+            self.comparison_basis_var.get()
+        )
+
+        if rule_name == "":
+            rule_name = self.comparison_basis_var.get()
+
+        sheet_name = self.comparison_sheet_var.get()
+
+        if sheet_name == self.ALL_SHEETS_LABEL:
+            sheet_name = None
+
+        target_fields = [
+            self.comparison_field_listbox.get(index)
+            for index in self.comparison_field_listbox.curselection()
+        ] if self.comparison_field_listbox is not None else []
+
+        threshold_percent = None
+        outlier_method = OutlierMethod.IQR
+        outlier_tolerance = 1.5
+
+        if basis == ComparisonBasis.BENCHMARK:
+            threshold_text = self.comparison_threshold_var.get().strip()
+
+            if threshold_text != "":
+                try:
+                    threshold_percent = float(threshold_text)
+                except ValueError:
+                    messagebox.showwarning(
+                        "Invalid threshold",
+                        "Please enter a valid numeric threshold, or "
+                        "leave it blank to use the global default.",
+                    )
+                    return None
+
+        else:
+            try:
+                outlier_tolerance = float(self.outlier_tolerance_var.get())
+            except ValueError:
+                messagebox.showwarning(
+                    "Invalid tolerance",
+                    "Please enter a valid numeric outlier tolerance.",
+                )
+                return None
+
+            outlier_method = self.OUTLIER_METHODS[
+                self.outlier_method_var.get()
+            ]
+
+        return CustomRule(
+            name=rule_name,
+            severity=self._current_severity(),
+            conditions=[],
+            enabled=True,
+            match_mode=CustomRuleMatchMode.ALL,
+            sheet_name=sheet_name,
+            message=self.message_var.get().strip(),
+            rule_type=CustomRuleType.COMPARISON_RULE,
+            target_fields=target_fields,
+            comparison_basis=basis,
+            comparison_threshold_percent=threshold_percent,
+            outlier_method=outlier_method,
+            outlier_tolerance=outlier_tolerance,
         )
 
     def _create_advanced_rule(self):
