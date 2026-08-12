@@ -127,7 +127,9 @@ class MainWindow:
             title="Review Field Mapping",
             description=(
                 "Confirm which cells in the template are supplier "
-                "input fields, or load a saved mapping profile."
+                "input fields, or load a saved mapping profile. If a "
+                "benchmark workbook is loaded, reopen this step to see "
+                "the benchmark rate for each cell in the inspector."
             ),
             buttons=[
                 ("Review Mapping...", self._review_mapping),
@@ -511,6 +513,7 @@ class MainWindow:
             parent=self.root,
             workbook=self.template_workbook,
             workbook_schema=self.workbook_schema,
+            benchmark_workbook=self.benchmark_workbook,
         )
 
         result = dialog.show()

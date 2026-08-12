@@ -28,6 +28,8 @@ class Finding:
 
     comparator_value: str | None = None
 
+    comparator_label: str = "Comparator Value"
+
     deviation_percent: float | None = None
 
     suggested_clarification: str = ""

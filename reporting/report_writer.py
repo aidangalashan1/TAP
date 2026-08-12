@@ -121,6 +121,9 @@ class ReportWriter:
             "Cell",
             "Region",
             "Actual Value",
+            "Comparison Basis",
+            "Comparator Value",
+            "Deviation %",
             "Reason",
             "Suggested Clarification",
         ]
@@ -187,9 +190,42 @@ class ReportWriter:
                 ""
             )
 
+            comparator_value = getattr(
+                finding,
+                "comparator_value",
+                None
+            )
+
             worksheet.cell(
                 row=row_number,
                 column=6
+            ).value = getattr(
+                finding,
+                "comparator_label",
+                ""
+            ) if comparator_value is not None else ""
+
+            worksheet.cell(
+                row=row_number,
+                column=7
+            ).value = (
+                comparator_value
+                if comparator_value is not None
+                else ""
+            )
+
+            worksheet.cell(
+                row=row_number,
+                column=8
+            ).value = getattr(
+                finding,
+                "deviation_percent",
+                None
+            )
+
+            worksheet.cell(
+                row=row_number,
+                column=9
             ).value = getattr(
                 finding,
                 "reason",
@@ -198,7 +234,7 @@ class ReportWriter:
 
             worksheet.cell(
                 row=row_number,
-                column=7
+                column=10
             ).value = getattr(
                 finding,
                 "suggested_clarification",
@@ -220,8 +256,11 @@ class ReportWriter:
             "C": 15,
             "D": 35,
             "E": 20,
-            "F": 60,
-            "G": 60,
+            "F": 28,
+            "G": 20,
+            "H": 15,
+            "I": 60,
+            "J": 60,
         }
 
         for column, width in widths.items():

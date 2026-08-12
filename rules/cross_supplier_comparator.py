@@ -86,6 +86,7 @@ class CrossSupplierComparator:
                             ),
                             actual_value=str(round(actual, 2)),
                             comparator_value=str(round(benchmark_number, 2)),
+                            comparator_label="Benchmark Rate",
                             deviation_percent=round(deviation_percent, 2),
                             reason=(
                                 f"Value differs from benchmark by "
@@ -168,6 +169,7 @@ class CrossSupplierComparator:
                     field_name=field_name,
                     value=value,
                     comparator_value=average,
+                    comparator_label="Supplier Group Average (Z-Score)",
                     severity=self._severity_for_z_score(z_score),
                     reason=(
                         f"Value differs from the supplier group average "
@@ -210,6 +212,7 @@ class CrossSupplierComparator:
                     field_name=field_name,
                     value=value,
                     comparator_value=(q1 + q3) / 2,
+                    comparator_label="Supplier Group Median (IQR)",
                     severity=Severity.MEDIUM,
                     reason=(
                         f"Value is outside the expected supplier group "
@@ -230,6 +233,7 @@ class CrossSupplierComparator:
         comparator_value,
         severity,
         reason,
+        comparator_label="Comparator Value",
     ):
         return Finding(
             supplier_name=supplier_name,
@@ -239,6 +243,7 @@ class CrossSupplierComparator:
             item_description=f"{record.record_reference} | {field_name}",
             actual_value=str(round(value, 2)),
             comparator_value=str(round(comparator_value, 2)),
+            comparator_label=comparator_label,
             deviation_percent=None,
             reason=reason,
             suggested_clarification=(
