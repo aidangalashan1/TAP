@@ -122,31 +122,33 @@ class MainWindow:
 
         self._build_step(
             steps,
-            key="mapping",
+            key="benchmark",
             number=2,
+            title="Load Benchmark Workbook (Optional)",
+            description=(
+                "Choose a benchmark workbook to compare supplier "
+                "pricing against known reference values. Loading it "
+                "before mapping lets the mapping review step show the "
+                "benchmark rate for each cell."
+            ),
+            buttons=[("Choose Benchmark...", self._select_benchmark)],
+        )
+
+        self._build_step(
+            steps,
+            key="mapping",
+            number=3,
             title="Review Field Mapping",
             description=(
                 "Confirm which cells in the template are supplier "
                 "input fields, or load a saved mapping profile. If a "
-                "benchmark workbook is loaded, reopen this step to see "
-                "the benchmark rate for each cell in the inspector."
+                "benchmark workbook was loaded in Step 2, the "
+                "inspector shows the benchmark rate for each cell."
             ),
             buttons=[
                 ("Review Mapping...", self._review_mapping),
                 ("Mapping Profiles...", self._manage_profiles),
             ],
-        )
-
-        self._build_step(
-            steps,
-            key="benchmark",
-            number=3,
-            title="Load Benchmark Workbook (Optional)",
-            description=(
-                "Choose a benchmark workbook to compare supplier "
-                "pricing against known reference values."
-            ),
-            buttons=[("Choose Benchmark...", self._select_benchmark)],
         )
 
         self._build_step(
@@ -303,7 +305,17 @@ class MainWindow:
         else:
             self._set_step_status("template", "Not started")
 
-        # Step 2: Mapping (needs template)
+        # Step 2: Benchmark (optional, always available)
+        if self.benchmark_workbook is not None:
+            self._set_step_status(
+                "benchmark",
+                Path(self.benchmark_file).name,
+                done=True,
+            )
+        else:
+            self._set_step_status("benchmark", "Skipped")
+
+        # Step 3: Mapping (needs template)
         self._set_step_enabled(
             "mapping", self.template_workbook is not None
         )
@@ -314,16 +326,6 @@ class MainWindow:
             self._set_step_status("mapping", "Not reviewed yet")
         else:
             self._set_step_status("mapping", "Load a template first")
-
-        # Step 3: Benchmark (optional, always available)
-        if self.benchmark_workbook is not None:
-            self._set_step_status(
-                "benchmark",
-                Path(self.benchmark_file).name,
-                done=True,
-            )
-        else:
-            self._set_step_status("benchmark", "Skipped")
 
         # Step 4: Rules (needs mapping)
         self._set_step_enabled(
