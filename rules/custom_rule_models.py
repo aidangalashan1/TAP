@@ -44,11 +44,22 @@ class CustomRuleRightValueType(str, Enum):
 class CustomRuleType(str, Enum):
     QUICK_RULES = "QUICK_RULES"
     ADVANCED_RULE = "ADVANCED_RULE"
+    COMPARISON_RULE = "COMPARISON_RULE"
 
 
 class OutlierMethod(str, Enum):
     IQR = "IQR"
     Z_SCORE = "Z_SCORE"
+
+
+class ComparisonBasis(str, Enum):
+    # Compare each supplier's value against a single known reference
+    # value from the benchmark workbook.
+    BENCHMARK = "BENCHMARK"
+
+    # Compare each supplier's value statistically against the other
+    # suppliers' responses to the same field - no benchmark involved.
+    BETWEEN_RESPONSES = "BETWEEN_RESPONSES"
 
 
 @dataclass
@@ -87,3 +98,15 @@ class CustomRule:
 
     # If empty, applies to all fields detected in records.
     target_fields: list[str] = field(default_factory=list)
+
+    # Comparison-rule settings (rule_type == COMPARISON_RULE). Scopes
+    # a benchmark or between-response comparison to this rule's
+    # sheet_name/target_fields, optionally overriding the global
+    # default threshold/tolerance for just that scope.
+    # - BENCHMARK rules use comparison_threshold_percent (falls back
+    #   to the global benchmark threshold when None).
+    # - BETWEEN_RESPONSES rules reuse outlier_method/outlier_tolerance
+    #   above (falls back to the global outlier defaults when the
+    #   tolerance is left at the default).
+    comparison_basis: ComparisonBasis | None = None
+    comparison_threshold_percent: float | None = None

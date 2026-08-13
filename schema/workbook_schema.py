@@ -228,6 +228,12 @@ class WorksheetSchema:
     sheet_name: str
     input_areas: list[InputArea] = field(default_factory=list)
 
+    # When true, benchmark/between-response comparison findings on
+    # this sheet are expected to differ (e.g. a sheet that's
+    # deliberately supplier-specific) and are marked as such in
+    # reports rather than treated as clarification-worthy.
+    expect_discrepancies: bool = False
+
     def add_input_area(self, input_area: InputArea) -> None:
         self.input_areas.append(input_area)
 

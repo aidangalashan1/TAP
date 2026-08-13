@@ -1,5 +1,7 @@
 # gui/main_window.py
 
+import platform
+import subprocess
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
@@ -10,7 +12,10 @@ import config
 from gui.workbook_mapper_dialog import WorkbookMapperDialog
 from gui.mapping_profile_dialog import MappingProfileDialog
 from gui.rule_manager_dialog import RuleManagerDialog
+from gui.threshold_settings_dialog import ThresholdSettingsDialog
 
+from rules.cross_supplier_comparator import CrossSupplierComparator
+from rules.threshold_settings import ThresholdSettingsStore
 from services.analysis_service import AnalysisService
 from services.custom_rules_service import CustomRulesService
 from services.mapping_profile_service import MappingProfileService
@@ -20,18 +25,32 @@ from services.workbook_loader_service import WorkbookLoaderService
 
 class MainWindow:
 
+    # Benchmark loading is optional, so it's excluded from the
+    # "steps complete" count - only the steps that always need
+    # action count toward progress.
+    STEP_KEYS_IN_ORDER = [
+        "template",
+        "mapping",
+        "suppliers",
+        "analysis",
+    ]
+
     def __init__(self, root):
 
         self.root = root
 
         self.root.title("Tender Analysis Platform")
         self.root.geometry("1300x900")
+        self.root.minsize(1000, 700)
 
         self.analysis_service = AnalysisService()
         self.schema_service = SchemaService()
         self.custom_rules_service = CustomRulesService()
         self.mapping_profile_service = MappingProfileService()
         self.workbook_loader_service = WorkbookLoaderService()
+        self.threshold_settings_store = ThresholdSettingsStore()
+
+        self.threshold_settings = self.threshold_settings_store.load()
 
         self.template_file = ""
         self.benchmark_file = ""
@@ -40,6 +59,10 @@ class MainWindow:
         self.benchmark_workbook = None
 
         self.supplier_files = []
+
+        self.output_folder = config.DEFAULT_OUTPUT_FOLDER
+        self.analysis_complete = False
+        self.last_report_paths = []
 
         self.workbook_schema = None
 
@@ -99,6 +122,24 @@ class MainWindow:
             ),
         ).pack(anchor="w")
 
+        progress_row = ttk.Frame(header)
+        progress_row.pack(fill=tk.X, pady=(8, 0))
+
+        self.progress_bar = ttk.Progressbar(
+            progress_row,
+            mode="determinate",
+            maximum=len(self.STEP_KEYS_IN_ORDER),
+            length=260,
+        )
+        self.progress_bar.pack(side=tk.LEFT)
+
+        self.progress_label = ttk.Label(
+            progress_row,
+            text="",
+            foreground="#555555",
+        )
+        self.progress_label.pack(side=tk.LEFT, padx=(10, 0))
+
     def _build_steps(self, parent):
 
         steps = ttk.Frame(parent)
@@ -122,8 +163,21 @@ class MainWindow:
 
         self._build_step(
             steps,
-            key="mapping",
+            key="benchmark",
             number=2,
+            title="Load Benchmark Workbook (Optional)",
+            description=(
+                "Choose a benchmark workbook to compare supplier "
+                "pricing against known reference values. Loading it "
+                "here lets Step 3 show the benchmark rate per cell."
+            ),
+            buttons=[("Choose Benchmark...", self._select_benchmark)],
+        )
+
+        self._build_step(
+            steps,
+            key="mapping",
+            number=3,
             title="Review Field Mapping",
             description=(
                 "Confirm which cells in the template are supplier "
@@ -137,18 +191,6 @@ class MainWindow:
 
         self._build_step(
             steps,
-            key="benchmark",
-            number=3,
-            title="Load Benchmark Workbook (Optional)",
-            description=(
-                "Choose a benchmark workbook to compare supplier "
-                "pricing against known reference values."
-            ),
-            buttons=[("Choose Benchmark...", self._select_benchmark)],
-        )
-
-        self._build_step(
-            steps,
             key="rules",
             number=4,
             title="Define Rules (Optional)",
@@ -157,7 +199,10 @@ class MainWindow:
                 "catch blanks, zeroes, duplicates, and outliers in "
                 "supplier responses."
             ),
-            buttons=[("Manage Rules...", self._manage_rules)],
+            buttons=[
+                ("Manage Rules...", self._manage_rules),
+                ("Threshold Settings...", self._open_threshold_settings),
+            ],
         )
 
         self._build_step(
@@ -172,7 +217,7 @@ class MainWindow:
             buttons=[("Choose Suppliers...", self._select_suppliers)],
         )
 
-        self._build_step(
+        analysis_frame = self._build_step(
             steps,
             key="analysis",
             number=6,
@@ -185,6 +230,36 @@ class MainWindow:
             ),
             buttons=[("Run Analysis", self._run_analysis)],
         )
+
+        output_row = ttk.Frame(analysis_frame)
+        output_row.pack(fill=tk.X, pady=(6, 0))
+
+        ttk.Button(
+            output_row,
+            text="Change Output Folder...",
+            command=self._select_output_folder,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        self.open_reports_button = ttk.Button(
+            output_row,
+            text="Open Reports Folder",
+            command=self._open_output_folder,
+            state="disabled",
+        )
+        self.open_reports_button.pack(side=tk.LEFT, padx=(0, 12))
+
+        ttk.Label(
+            output_row,
+            text="Saving to:",
+            foreground="#555555",
+        ).pack(side=tk.LEFT)
+
+        self.output_folder_label = ttk.Label(
+            output_row,
+            text=self.output_folder,
+            foreground="#555555",
+        )
+        self.output_folder_label.pack(side=tk.LEFT, padx=(5, 0))
 
     def _build_step(
         self,
@@ -242,6 +317,8 @@ class MainWindow:
 
         self.step_status_labels[key] = status_label
 
+        return frame
+
     def _build_log_section(self, parent):
 
         frame = ttk.LabelFrame(
@@ -289,6 +366,40 @@ class MainWindow:
         for button in self.step_buttons.get(key, []):
             button.configure(state=state)
 
+    def _invalidate_analysis(self):
+        """
+        Any change upstream of analysis (mapping, rules, thresholds,
+        supplier/benchmark files) makes prior results stale - clear
+        the "complete" state so the step list doesn't claim results
+        are current when they no longer reflect what's configured.
+        """
+
+        self.analysis_complete = False
+        self.last_report_paths = []
+
+    def _update_progress(self):
+
+        step_done = {
+            "template": self.template_workbook is not None,
+            "mapping": self.workbook_schema is not None,
+            "suppliers": bool(self.supplier_files),
+            "analysis": self.analysis_complete,
+        }
+
+        completed = sum(
+            1
+            for key in self.STEP_KEYS_IN_ORDER
+            if step_done.get(key)
+        )
+
+        total = len(self.STEP_KEYS_IN_ORDER)
+
+        self.progress_bar.configure(value=completed)
+
+        self.progress_label.configure(
+            text=f"{completed} of {total} steps complete"
+        )
+
     def _refresh_state(self):
 
         # Step 1: Template
@@ -301,7 +412,17 @@ class MainWindow:
         else:
             self._set_step_status("template", "Not started")
 
-        # Step 2: Mapping (needs template)
+        # Step 2: Benchmark (optional, always available)
+        if self.benchmark_workbook is not None:
+            self._set_step_status(
+                "benchmark",
+                Path(self.benchmark_file).name,
+                done=True,
+            )
+        else:
+            self._set_step_status("benchmark", "Skipped")
+
+        # Step 3: Mapping (needs template)
         self._set_step_enabled(
             "mapping", self.template_workbook is not None
         )
@@ -312,16 +433,6 @@ class MainWindow:
             self._set_step_status("mapping", "Not reviewed yet")
         else:
             self._set_step_status("mapping", "Load a template first")
-
-        # Step 3: Benchmark (optional, always available)
-        if self.benchmark_workbook is not None:
-            self._set_step_status(
-                "benchmark",
-                Path(self.benchmark_file).name,
-                done=True,
-            )
-        else:
-            self._set_step_status("benchmark", "Skipped")
 
         # Step 4: Rules (needs mapping)
         self._set_step_enabled(
@@ -357,12 +468,30 @@ class MainWindow:
 
         self._set_step_enabled("analysis", ready_for_analysis)
 
-        if self.workbook_schema is None:
+        if self.analysis_complete:
+            self._set_step_status(
+                "analysis",
+                f"{len(self.last_report_paths)} report(s) generated",
+                done=True,
+            )
+        elif self.workbook_schema is None:
             self._set_step_status("analysis", "Review mapping first")
         elif not self.supplier_files:
             self._set_step_status("analysis", "Load supplier workbooks first")
         else:
             self._set_step_status("analysis", "Ready")
+
+        self.output_folder_label.configure(text=self.output_folder)
+
+        self.open_reports_button.configure(
+            state=(
+                "normal"
+                if Path(self.output_folder).exists()
+                else "disabled"
+            )
+        )
+
+        self._update_progress()
 
     # ==================================================
     # Error Handling
@@ -414,6 +543,7 @@ class MainWindow:
 
         self.template_file = file_path
         self.template_workbook = template_workbook
+        self._invalidate_analysis()
 
         self._refresh_state()
 
@@ -450,6 +580,7 @@ class MainWindow:
 
         self.benchmark_file = file_path
         self.benchmark_workbook = benchmark_workbook
+        self._invalidate_analysis()
 
         self._refresh_state()
 
@@ -469,6 +600,7 @@ class MainWindow:
             return
 
         self.supplier_files = list(files)
+        self._invalidate_analysis()
 
         self._refresh_state()
 
@@ -511,12 +643,14 @@ class MainWindow:
             parent=self.root,
             workbook=self.template_workbook,
             workbook_schema=self.workbook_schema,
+            benchmark_workbook=self.benchmark_workbook,
         )
 
         result = dialog.show()
 
         if result is not None:
             self.workbook_schema = result
+            self._invalidate_analysis()
 
             self._log(
                 "Workbook mapping updated"
@@ -555,6 +689,7 @@ class MainWindow:
 
                 return
 
+            self._invalidate_analysis()
             self._refresh_state()
 
             self._log(
@@ -582,19 +717,106 @@ class MainWindow:
             )
         )
 
+        sheet_names = self.schema_service.get_sheet_names(
+            self.workbook_schema
+        )
+
         dialog = RuleManagerDialog(
             self.root,
             self.custom_rules_service,
             fields,
+            threshold_settings=self.threshold_settings,
+            sheet_names=sheet_names,
         )
 
         self.custom_rules = dialog.show()
+        self._invalidate_analysis()
 
         self._refresh_state()
 
         self._log(
             f"{len(self.custom_rules)} rule(s) saved"
         )
+
+    def _open_threshold_settings(self):
+
+        dialog = ThresholdSettingsDialog(
+            self.root,
+            self.threshold_settings,
+        )
+
+        result = dialog.show()
+
+        if result is None:
+            return
+
+        self.threshold_settings = result
+        self.threshold_settings_store.save(self.threshold_settings)
+        self._invalidate_analysis()
+
+        self._refresh_state()
+
+        self._log(
+            "Threshold settings saved: "
+            f"benchmark {self.threshold_settings.benchmark_threshold_percent}%, "
+            f"outlier method "
+            f"{self.threshold_settings.default_outlier_method.value}, "
+            f"tolerance {self.threshold_settings.default_outlier_tolerance}"
+        )
+
+    # ==================================================
+    # Output Folder
+    # ==================================================
+
+    def _select_output_folder(self):
+
+        folder = filedialog.askdirectory(
+            initialdir=self.output_folder
+        )
+
+        if not folder:
+            return
+
+        self.output_folder = folder
+        self._invalidate_analysis()
+
+        self._refresh_state()
+
+        self._log(f"Output folder set to: {folder}")
+
+    def _open_output_folder(self):
+
+        folder = Path(self.output_folder)
+
+        if not folder.exists():
+
+            messagebox.showinfo(
+                "Folder Not Found",
+                (
+                    f"{folder} doesn't exist yet - it's created the "
+                    "first time a report is written there."
+                ),
+            )
+
+            return
+
+        try:
+
+            system_name = platform.system()
+
+            if system_name == "Windows":
+                import os
+                os.startfile(str(folder))
+            elif system_name == "Darwin":
+                subprocess.run(["open", str(folder)], check=False)
+            else:
+                subprocess.run(["xdg-open", str(folder)], check=False)
+
+        except Exception as error:
+
+            self._handle_error(
+                "Failed to Open Folder", error
+            )
 
     # ==================================================
     # Analysis
@@ -653,6 +875,24 @@ class MainWindow:
 
             return
 
+        skipped_count = len(self.supplier_files) - len(supplier_workbooks)
+
+        if skipped_count:
+
+            proceed = messagebox.askyesno(
+                "Some Supplier Workbooks Skipped",
+                (
+                    f"{skipped_count} of {len(self.supplier_files)} "
+                    "supplier workbook(s) could not be loaded and will "
+                    "be skipped (see the activity log for details).\n\n"
+                    f"Continue analysing the remaining "
+                    f"{len(supplier_workbooks)}?"
+                ),
+            )
+
+            if not proceed:
+                return
+
         comparison_mode = (
             "against the benchmark workbook"
             if self.benchmark_workbook is not None
@@ -679,6 +919,20 @@ class MainWindow:
             f"supplier workbook(s), comparing {comparison_mode}."
         )
 
+        self.analysis_service.cross_supplier_comparator = (
+            CrossSupplierComparator(
+                benchmark_threshold_percent=(
+                    self.threshold_settings.benchmark_threshold_percent
+                ),
+                outlier_method=(
+                    self.threshold_settings.default_outlier_method
+                ),
+                outlier_tolerance=(
+                    self.threshold_settings.default_outlier_tolerance
+                ),
+            )
+        )
+
         try:
 
             results = self.analysis_service.analyse_suppliers(
@@ -686,7 +940,7 @@ class MainWindow:
                 supplier_workbooks=supplier_workbooks,
                 benchmark_workbook=self.benchmark_workbook,
                 custom_rules=self.custom_rules,
-                output_folder=config.DEFAULT_OUTPUT_FOLDER,
+                output_folder=self.output_folder,
             )
 
         except Exception as error:
@@ -704,14 +958,25 @@ class MainWindow:
                 f"{len(result.findings)} findings"
             )
 
-        messagebox.showinfo(
-            "Complete",
+        self.analysis_complete = True
+        self.last_report_paths = [
+            result.report_path for result in results if result.report_path
+        ]
+
+        self._refresh_state()
+
+        open_folder = messagebox.askyesno(
+            "Analysis Complete",
             (
                 f"Analysis complete.\n\n"
-                f"Reports generated: "
-                f"{len(results)}"
+                f"Reports generated: {len(results)}\n"
+                f"Saved to: {self.output_folder}\n\n"
+                "Open the reports folder now?"
             ),
         )
+
+        if open_folder:
+            self._open_output_folder()
 
     # ==================================================
     # Logging

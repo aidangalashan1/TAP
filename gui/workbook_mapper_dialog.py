@@ -51,10 +51,12 @@ class WorkbookMapperDialog:
         parent,
         workbook,
         workbook_schema,
+        benchmark_workbook=None,
     ):
         self.parent = parent
         self.workbook = workbook
         self.workbook_schema = workbook_schema
+        self.benchmark_workbook = benchmark_workbook
 
         self.result = None
 
@@ -253,6 +255,33 @@ class WorkbookMapperDialog:
         self.sheet_list.bind(
             "<<ListboxSelect>>",
             self._sheet_selected,
+        )
+
+        self.expect_discrepancies_var = tk.BooleanVar(value=False)
+
+        ttk.Checkbutton(
+            frame,
+            text="Discrepancies expected on this sheet",
+            variable=self.expect_discrepancies_var,
+            command=self._toggle_expect_discrepancies,
+        ).pack(
+            anchor="w",
+            pady=(5, 0),
+        )
+
+    def _toggle_expect_discrepancies(self):
+        if self.current_sheet_name is None:
+            return
+
+        worksheet_schema = self.workbook_schema.get_worksheet(
+            self.current_sheet_name
+        )
+
+        if worksheet_schema is None:
+            return
+
+        worksheet_schema.expect_discrepancies = (
+            self.expect_discrepancies_var.get()
         )
 
     def _build_grid_panel(
@@ -480,6 +509,18 @@ class WorkbookMapperDialog:
 
         self._render_sheet()
         self._load_input_areas()
+        self._refresh_expect_discrepancies_checkbox()
+
+    def _refresh_expect_discrepancies_checkbox(self):
+        worksheet_schema = self.workbook_schema.get_worksheet(
+            self.current_sheet_name
+        )
+
+        self.expect_discrepancies_var.set(
+            bool(worksheet_schema.expect_discrepancies)
+            if worksheet_schema is not None
+            else False
+        )
 
     # ==================================================
     # RENDERING
@@ -935,10 +976,53 @@ class WorkbookMapperDialog:
             f"Format: {getattr(cell, 'number_format', '')}",
         ]
 
+        if self.benchmark_workbook is not None:
+
+            benchmark_value = self._benchmark_value_for_cell(
+                cell.cell_reference
+            )
+
+            lines.append(
+                "Benchmark Rate: "
+                + (
+                    "(no matching benchmark cell)"
+                    if benchmark_value is None
+                    else str(benchmark_value)
+                )
+            )
+
         self.inspector.insert(
             tk.END,
             "\n".join(lines),
         )
+
+    def _benchmark_value_for_cell(
+        self,
+        cell_reference,
+    ):
+        """
+        Looks up the value at the same sheet name / cell reference in
+        the benchmark workbook, so the user can validate the rate that
+        will be used for benchmark comparison against this cell.
+        """
+        if self.benchmark_workbook is None:
+            return None
+
+        benchmark_worksheet = (
+            self.benchmark_workbook.get_worksheet(
+                self.current_sheet_name
+            )
+        )
+
+        if benchmark_worksheet is None:
+            return None
+
+        for benchmark_cell in benchmark_worksheet.cells:
+
+            if benchmark_cell.cell_reference == cell_reference:
+                return benchmark_cell.value
+
+        return None
 
     def _input_area_selected(
         self,

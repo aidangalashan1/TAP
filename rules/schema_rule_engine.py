@@ -5,6 +5,7 @@ from statistics import mean
 from statistics import pstdev
 
 from models.pricing_models import Finding
+from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 
 from rules.custom_rule_models import (
@@ -32,10 +33,13 @@ class SchemaRuleEngine:
                 findings.extend(
                     self._execute_quick_rules(records, rule)
                 )
-            else:
+            elif rule.rule_type == CustomRuleType.ADVANCED_RULE:
                 findings.extend(
                     self._execute_advanced_rule(records, rule)
                 )
+            # COMPARISON_RULE rules compare across supplier workbooks
+            # and are executed separately by CrossSupplierComparator,
+            # not against a single supplier's records here.
 
         return findings
 
@@ -431,6 +435,7 @@ class SchemaRuleEngine:
             item_description=f"{record.region_name} | {field_name}",
             actual_value="" if value is None else str(value),
             reason=reason,
+            category=FindingCategory.TENDER_RESPONSE_CHECK.value,
             comparator_value=None,
             deviation_percent=None,
             suggested_clarification=(

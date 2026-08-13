@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from models.pricing_models import Finding
+from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 from models.pricing_models import SupplierAnalysisResult
 from reporting.report_writer import ReportWriter
 from rules.cross_supplier_comparator import CrossSupplierComparator
+from rules.custom_rule_models import CustomRuleType
 from services.custom_rules_service import CustomRulesService
 from services.schema_service import SchemaService
 
@@ -94,6 +96,7 @@ class AnalysisService:
                 supplier_records=supplier_records,
                 benchmark_workbook=benchmark_workbook,
                 workbook_schema=workbook_schema,
+                custom_rules=custom_rules,
             )
         )
 
@@ -121,6 +124,8 @@ class AnalysisService:
                 + quick_findings
                 + comparison_findings_by_supplier.get(supplier_name, [])
             )
+
+            self._flag_expected_discrepancies(findings, workbook_schema)
 
             supplier_result = SupplierAnalysisResult(
                 supplier_name=supplier_name,
@@ -162,6 +167,7 @@ class AnalysisService:
                 cell_reference="",
                 item_description="Missing worksheet(s)",
                 actual_value="",
+                category=FindingCategory.MISSING_WORKSHEET.value,
                 reason=(
                     f"This workbook is missing worksheet(s) the template "
                     f"expects: {sheet_list}. Fields on those sheets could "
@@ -175,6 +181,15 @@ class AnalysisService:
             )
         ]
 
+    def _flag_expected_discrepancies(self, findings, workbook_schema):
+        for finding in findings:
+            worksheet_schema = workbook_schema.get_worksheet(
+                finding.worksheet_name
+            )
+
+            if worksheet_schema is not None and worksheet_schema.expect_discrepancies:
+                finding.expected_discrepancy = True
+
     def get_missing_sheets(self, workbook, workbook_schema):
         return self.schema_service.get_missing_sheets(
             workbook,
@@ -186,28 +201,31 @@ class AnalysisService:
         supplier_records,
         benchmark_workbook,
         workbook_schema,
+        custom_rules=None,
     ):
-        if benchmark_workbook is not None:
+        benchmark_records = None
 
+        if benchmark_workbook is not None:
             benchmark_records = self.schema_service.build_records(
                 benchmark_workbook,
                 workbook_schema,
             )
 
-            comparison_findings = (
-                self.cross_supplier_comparator.compare_to_benchmark(
-                    supplier_records=supplier_records,
-                    benchmark_records=benchmark_records,
-                )
-            )
+        comparison_rules = [
+            rule
+            for rule in (custom_rules or [])
+            if rule.enabled
+            and rule.rule_type == CustomRuleType.COMPARISON_RULE
+        ]
 
-        else:
-
-            comparison_findings = (
-                self.cross_supplier_comparator.compare_statistical(
-                    supplier_records=supplier_records,
-                )
+        comparison_findings = (
+            self.cross_supplier_comparator.compare_using_rules(
+                supplier_records=supplier_records,
+                benchmark_records=benchmark_records,
+                comparison_rules=comparison_rules,
+                use_benchmark_default=benchmark_workbook is not None,
             )
+        )
 
         findings_by_supplier = defaultdict(list)
 

@@ -33,6 +33,8 @@ DEFAULT_REPORT_FILE_NAME = "tender_clarification_report.xlsx"
 
 CUSTOM_RULES_FILE_PATH = str(BASE_DIR / "custom_rules.json")
 
+THRESHOLD_SETTINGS_FILE_PATH = str(BASE_DIR / "threshold_settings.json")
+
 MAPPING_PROFILES_DIRECTORY = str(BASE_DIR / "mapping_profiles")
 
 

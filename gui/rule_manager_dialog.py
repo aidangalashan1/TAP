@@ -18,10 +18,19 @@ class RuleManagerDialog:
     a change made in this dialog.
     """
 
-    def __init__(self, parent, custom_rules_service, fields):
+    def __init__(
+        self,
+        parent,
+        custom_rules_service,
+        fields,
+        threshold_settings=None,
+        sheet_names=None,
+    ):
         self.parent = parent
         self.custom_rules_service = custom_rules_service
         self.fields = fields
+        self.threshold_settings = threshold_settings
+        self.sheet_names = sheet_names or []
 
         self.rules = list(custom_rules_service.load_rules())
 
@@ -121,11 +130,7 @@ class RuleManagerDialog:
 
         for rule in self.rules:
 
-            rule_type_label = (
-                "Quick Rules"
-                if rule.rule_type == CustomRuleType.QUICK_RULES
-                else "Advanced Rule"
-            )
+            rule_type_label = self._rule_type_label(rule)
 
             item = self.rule_tree.insert(
                 "",
@@ -140,6 +145,26 @@ class RuleManagerDialog:
             )
 
             self.rule_lookup[item] = rule
+
+    def _rule_type_label(self, rule):
+        if rule.rule_type == CustomRuleType.QUICK_RULES:
+            return "Quick Rules"
+
+        if rule.rule_type == CustomRuleType.COMPARISON_RULE:
+            basis = rule.comparison_basis
+
+            if basis is not None and hasattr(basis, "value"):
+                basis = basis.value
+
+            if basis == "BENCHMARK":
+                return "Comparison Rule (vs Benchmark)"
+
+            if basis == "BETWEEN_RESPONSES":
+                return "Comparison Rule (Between Responses)"
+
+            return "Comparison Rule"
+
+        return "Advanced Rule"
 
     def _selected_rule(self):
         selection = self.rule_tree.selection()
@@ -158,7 +183,24 @@ class RuleManagerDialog:
     # ==================================================
 
     def _new_rule(self):
-        dialog = RuleWizardDialog(self.window, self.fields)
+        default_outlier_method = None
+        default_outlier_tolerance = None
+
+        if self.threshold_settings is not None:
+            default_outlier_method = (
+                self.threshold_settings.default_outlier_method
+            )
+            default_outlier_tolerance = (
+                self.threshold_settings.default_outlier_tolerance
+            )
+
+        dialog = RuleWizardDialog(
+            self.window,
+            self.fields,
+            sheet_names=self.sheet_names,
+            default_outlier_method=default_outlier_method,
+            default_outlier_tolerance=default_outlier_tolerance,
+        )
 
         result = dialog.show()
 
@@ -176,7 +218,12 @@ class RuleManagerDialog:
             messagebox.showinfo("No Rule Selected", "Select a rule first.")
             return
 
-        dialog = RuleWizardDialog(self.window, self.fields, existing_rule=rule)
+        dialog = RuleWizardDialog(
+            self.window,
+            self.fields,
+            existing_rule=rule,
+            sheet_names=self.sheet_names,
+        )
 
         result = dialog.show()
 
