@@ -9,7 +9,6 @@ from rules.custom_rule_models import (
     CustomRuleRightValueType,
     CustomRuleSeverity,
     CustomRuleType,
-    OutlierMethod,
 )
 from rules.schema_rule_engine import SchemaRuleEngine
 from schema.workbook_schema import DataRecord
@@ -92,25 +91,36 @@ def test_quick_rule_duplicate_detection():
     }
 
 
-def test_quick_rule_iqr_outlier_detection():
+def test_quick_rule_outlier_detection_against_average():
+    """
+    9 rows at 100, 1 row at 300. Average is 120, so the normal rows
+    sit ~17% away from it (under a 25% tolerance) while the outlier
+    sits 150% away (clearly over).
+    """
+
     records = [
-        _record("Labour", f"Row {i}", {"Day Rate": value})
-        for i, value in enumerate([100, 102, 98, 101, 500], start=2)
+        _record("Labour", f"Row {i}", {"Day Rate": 100})
+        for i in range(2, 11)
     ]
+    records.append(_record("Labour", "Row 11", {"Day Rate": 300}))
 
     rule = CustomRule(
         name="Quick Rules",
         severity=CustomRuleSeverity.MEDIUM,
         rule_type=CustomRuleType.QUICK_RULES,
         check_outliers=True,
-        outlier_method=OutlierMethod.IQR,
-        outlier_tolerance=1.5,
+        outlier_tolerance_percent=25.0,
     )
 
     findings = SchemaRuleEngine().execute(records, [rule])
 
     assert len(findings) == 1
-    assert findings[0].actual_value == "500.0"
+    assert findings[0].actual_value == "300.0"
+
+    # The average and deviation figures must not leak into the
+    # supplier-facing clarification text.
+    assert "120" not in findings[0].suggested_clarification
+    assert "150" not in findings[0].suggested_clarification
 
 
 def test_advanced_rule_and_match_mode_requires_all_conditions():

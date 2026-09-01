@@ -4,27 +4,19 @@ import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
 
-from rules.custom_rule_models import OutlierMethod
 from rules.threshold_settings import ThresholdSettings
 
 
 class ThresholdSettingsDialog:
     """
     Lets the user set the global default thresholds used to flag
-    findings, unless a rule overrides them with its own settings:
+    findings, unless a rule overrides them with its own settings.
 
-    - Benchmark comparison always uses raw % difference, since it
-      compares a supplier value against a single known reference
-      value.
-    - Between-response (cross-supplier) outlier detection can be
-      based on the group mean/standard deviation (Z Score) or the
-      group median/quartile range (IQR).
+    Both bases use the same raw % difference logic: benchmark
+    comparison measures against a single known reference value,
+    between-response comparison measures against the group average
+    of every supplier's response to that same field.
     """
-
-    OUTLIER_METHODS = {
-        "Mean / Standard Deviation (Z Score)": OutlierMethod.Z_SCORE,
-        "Median / Quartile Range (IQR)": OutlierMethod.IQR,
-    }
 
     def __init__(self, parent, settings):
         self.parent = parent
@@ -33,7 +25,7 @@ class ThresholdSettingsDialog:
 
         self.window = tk.Toplevel(parent)
         self.window.title("Threshold Settings")
-        self.window.geometry("520x320")
+        self.window.geometry("520x280")
         self.window.transient(parent)
         self.window.grab_set()
 
@@ -89,39 +81,24 @@ class ThresholdSettingsDialog:
         ttk.Label(
             main,
             text=(
-                "Default basis used to flag one supplier's response "
-                "as an outlier compared to the other suppliers' "
-                "responses to the same field (no benchmark involved). "
-                "Individual rules in the Rule Wizard can override this."
+                "Default % tolerance either side of the group average "
+                "(across every supplier's response to the same field) "
+                "at which a value is flagged - e.g. a 25% tolerance "
+                "against a £5.00 average flags anything below £3.75 "
+                "or above £6.25. Individual rules in the Rule Wizard "
+                "can override this."
             ),
             wraplength=470,
             foreground="#555555",
         ).pack(anchor="w", pady=(0, 5))
 
-        method_row = ttk.Frame(main)
-        method_row.pack(anchor="w", pady=(0, 8))
-
-        ttk.Label(method_row, text="Method:").pack(side=tk.LEFT)
-
-        self.outlier_method_var = tk.StringVar(
-            value=self._method_label(self.settings.default_outlier_method)
-        )
-
-        ttk.Combobox(
-            method_row,
-            textvariable=self.outlier_method_var,
-            values=list(self.OUTLIER_METHODS.keys()),
-            state="readonly",
-            width=35,
-        ).pack(side=tk.LEFT, padx=(8, 0))
-
         tolerance_row = ttk.Frame(main)
         tolerance_row.pack(anchor="w")
 
-        ttk.Label(tolerance_row, text="Tolerance:").pack(side=tk.LEFT)
+        ttk.Label(tolerance_row, text="Tolerance (%):").pack(side=tk.LEFT)
 
         self.outlier_tolerance_var = tk.StringVar(
-            value=str(self.settings.default_outlier_tolerance)
+            value=str(self.settings.default_outlier_tolerance_percent)
         )
 
         ttk.Entry(
@@ -141,19 +118,14 @@ class ThresholdSettingsDialog:
             footer, text="Cancel", command=self.window.destroy
         ).pack(side=tk.RIGHT)
 
-    def _method_label(self, method):
-        for label, value in self.OUTLIER_METHODS.items():
-            if value == method:
-                return label
-
-        return list(self.OUTLIER_METHODS.keys())[0]
-
     def _save(self):
         try:
             benchmark_threshold_percent = float(
                 self.benchmark_percent_var.get()
             )
-            outlier_tolerance = float(self.outlier_tolerance_var.get())
+            outlier_tolerance_percent = float(
+                self.outlier_tolerance_var.get()
+            )
         except ValueError:
             messagebox.showerror(
                 "Invalid Value",
@@ -161,14 +133,9 @@ class ThresholdSettingsDialog:
             )
             return
 
-        outlier_method = self.OUTLIER_METHODS.get(
-            self.outlier_method_var.get(), OutlierMethod.Z_SCORE
-        )
-
         self.result = ThresholdSettings(
             benchmark_threshold_percent=benchmark_threshold_percent,
-            default_outlier_method=outlier_method,
-            default_outlier_tolerance=outlier_tolerance,
+            default_outlier_tolerance_percent=outlier_tolerance_percent,
         )
 
         self.window.destroy()

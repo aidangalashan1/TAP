@@ -13,7 +13,6 @@ from rules.custom_rule_models import (
     CustomRuleRightValueType,
     CustomRuleSeverity,
     CustomRuleType,
-    OutlierMethod,
 )
 
 
@@ -57,11 +56,6 @@ class RuleWizardDialog:
         "Info": CustomRuleSeverity.INFO,
     }
 
-    OUTLIER_METHODS = {
-        "IQR": OutlierMethod.IQR,
-        "Z Score": OutlierMethod.Z_SCORE,
-    }
-
     COMPARISON_BASIS_OPTIONS = {
         "Compare vs Benchmark Rate": ComparisonBasis.BENCHMARK,
         "Compare Between Supplier Responses": ComparisonBasis.BETWEEN_RESPONSES,
@@ -74,8 +68,7 @@ class RuleWizardDialog:
         parent,
         fields,
         existing_rule=None,
-        default_outlier_method=None,
-        default_outlier_tolerance=None,
+        default_outlier_tolerance_percent=None,
         sheet_names=None,
     ):
         self.parent = parent
@@ -106,21 +99,11 @@ class RuleWizardDialog:
         self.quick_duplicates_var = tk.BooleanVar(value=False)
         self.quick_outliers_var = tk.BooleanVar(value=True)
 
-        default_method_label = "IQR"
-
-        if default_outlier_method is not None:
-            for label, value in self.OUTLIER_METHODS.items():
-                if value == default_outlier_method:
-                    default_method_label = label
-                    break
-
-        self.outlier_method_var = tk.StringVar(value=default_method_label)
-
         self.outlier_tolerance_var = tk.StringVar(
             value=str(
-                default_outlier_tolerance
-                if default_outlier_tolerance is not None
-                else 1.5
+                default_outlier_tolerance_percent
+                if default_outlier_tolerance_percent is not None
+                else 25.0
             )
         )
 
@@ -177,12 +160,9 @@ class RuleWizardDialog:
             self.quick_negatives_var.set(rule.check_negative_values)
             self.quick_duplicates_var.set(rule.check_duplicates)
             self.quick_outliers_var.set(rule.check_outliers)
-            self.outlier_tolerance_var.set(str(rule.outlier_tolerance))
-
-            for label, value in self.OUTLIER_METHODS.items():
-                if value == rule.outlier_method:
-                    self.outlier_method_var.set(label)
-                    break
+            self.outlier_tolerance_var.set(
+                str(rule.outlier_tolerance_percent)
+            )
 
             return
 
@@ -209,12 +189,9 @@ class RuleWizardDialog:
                 str(rule.comparison_threshold_percent)
             )
 
-        self.outlier_tolerance_var.set(str(rule.outlier_tolerance))
-
-        for label, value in self.OUTLIER_METHODS.items():
-            if value == rule.outlier_method:
-                self.outlier_method_var.set(label)
-                break
+        self.outlier_tolerance_var.set(
+            str(rule.outlier_tolerance_percent)
+        )
 
         self._pending_target_fields = list(rule.target_fields)
 
@@ -464,8 +441,23 @@ class RuleWizardDialog:
         outlier_frame = ttk.Frame(self.body_frame)
         outlier_frame.pack(anchor="w", pady=(8, 0))
 
-        ttk.Label(outlier_frame, text="Outlier method").grid(
+        ttk.Label(
+            outlier_frame,
+            text=(
+                "Flags a value that differs from the average of this "
+                "supplier's other entries for that field by more than:"
+            ),
+        ).grid(
             row=0,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            padx=5,
+            pady=(5, 0),
+        )
+
+        ttk.Label(outlier_frame, text="Tolerance (%)").grid(
+            row=1,
             column=0,
             sticky="w",
             padx=5,
@@ -474,34 +466,12 @@ class RuleWizardDialog:
 
         ttk.Combobox(
             outlier_frame,
-            textvariable=self.outlier_method_var,
-            values=list(self.OUTLIER_METHODS.keys()),
-            state="readonly",
-            width=20,
-        ).grid(
-            row=0,
-            column=1,
-            sticky="w",
-            padx=5,
-            pady=5,
-        )
-
-        ttk.Label(outlier_frame, text="Tolerance").grid(
-            row=0,
-            column=2,
-            sticky="w",
-            padx=5,
-            pady=5,
-        )
-
-        ttk.Combobox(
-            outlier_frame,
             textvariable=self.outlier_tolerance_var,
-            values=["1.5", "2", "2.5", "3"],
+            values=["10", "15", "25", "35", "50"],
             width=10,
         ).grid(
-            row=0,
-            column=3,
+            row=1,
+            column=1,
             sticky="w",
             padx=5,
             pady=5,
@@ -605,28 +575,15 @@ class RuleWizardDialog:
         else:
             ttk.Label(
                 self.comparison_body_frame,
-                text="Outlier method",
+                text="Tolerance override (%):",
             ).grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
             ttk.Combobox(
                 self.comparison_body_frame,
-                textvariable=self.outlier_method_var,
-                values=list(self.OUTLIER_METHODS.keys()),
-                state="readonly",
-                width=20,
-            ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
-
-            ttk.Label(
-                self.comparison_body_frame,
-                text="Tolerance",
-            ).grid(row=0, column=2, sticky="w", padx=(20, 5), pady=5)
-
-            ttk.Combobox(
-                self.comparison_body_frame,
                 textvariable=self.outlier_tolerance_var,
-                values=["1.5", "2", "2.5", "3"],
+                values=["10", "15", "25", "35", "50"],
                 width=10,
-            ).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+            ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
     # ==================================================
     # Advanced Rules UI
@@ -815,8 +772,7 @@ class RuleWizardDialog:
             check_negative_values=self.quick_negatives_var.get(),
             check_duplicates=self.quick_duplicates_var.get(),
             check_outliers=self.quick_outliers_var.get(),
-            outlier_method=self.OUTLIER_METHODS[self.outlier_method_var.get()],
-            outlier_tolerance=tolerance,
+            outlier_tolerance_percent=tolerance,
             target_fields=[],
         )
 
@@ -840,8 +796,7 @@ class RuleWizardDialog:
         ] if self.comparison_field_listbox is not None else []
 
         threshold_percent = None
-        outlier_method = OutlierMethod.IQR
-        outlier_tolerance = 1.5
+        outlier_tolerance_percent = 25.0
 
         if basis == ComparisonBasis.BENCHMARK:
             threshold_text = self.comparison_threshold_var.get().strip()
@@ -859,17 +814,15 @@ class RuleWizardDialog:
 
         else:
             try:
-                outlier_tolerance = float(self.outlier_tolerance_var.get())
+                outlier_tolerance_percent = float(
+                    self.outlier_tolerance_var.get()
+                )
             except ValueError:
                 messagebox.showwarning(
                     "Invalid tolerance",
                     "Please enter a valid numeric outlier tolerance.",
                 )
                 return None
-
-            outlier_method = self.OUTLIER_METHODS[
-                self.outlier_method_var.get()
-            ]
 
         return CustomRule(
             name=rule_name,
@@ -883,8 +836,7 @@ class RuleWizardDialog:
             target_fields=target_fields,
             comparison_basis=basis,
             comparison_threshold_percent=threshold_percent,
-            outlier_method=outlier_method,
-            outlier_tolerance=outlier_tolerance,
+            outlier_tolerance_percent=outlier_tolerance_percent,
         )
 
     def _create_advanced_rule(self):

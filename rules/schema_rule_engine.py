@@ -2,19 +2,18 @@
 
 import math
 from statistics import mean
-from statistics import pstdev
 
 from models.pricing_models import Finding
 from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 
+from rules.clarification_text import build_clarification_request
 from rules.custom_rule_models import (
     CustomRuleMatchMode,
     CustomRuleOperator,
     CustomRuleRightValueType,
     CustomRuleSeverity,
     CustomRuleType,
-    OutlierMethod,
 )
 
 
@@ -208,53 +207,14 @@ class SchemaRuleEngine:
         return findings
 
     def _check_outliers(self, records, fields, rule):
-        if rule.outlier_method == OutlierMethod.Z_SCORE:
-            return self._check_z_score_outliers(records, fields, rule)
+        """
+        Flags a value as an outlier when it differs from the average
+        of that same supplier's other entries for this field by more
+        than rule.outlier_tolerance_percent - a raw % diff either
+        side of the average, e.g. a 25% tolerance against a £5.00
+        average flags anything below £3.75 or above £6.25.
+        """
 
-        return self._check_iqr_outliers(records, fields, rule)
-
-    def _check_iqr_outliers(self, records, fields, rule):
-        findings = []
-
-        for field_name in fields:
-            values = self._numeric_values_for_field(records, field_name)
-
-            if len(values) < 4:
-                continue
-
-            numeric_values = sorted(value for _, value in values)
-
-            q1 = self._percentile(numeric_values, 25)
-            q3 = self._percentile(numeric_values, 75)
-
-            iqr = q3 - q1
-
-            if iqr == 0:
-                continue
-
-            lower_bound = q1 - (rule.outlier_tolerance * iqr)
-            upper_bound = q3 + (rule.outlier_tolerance * iqr)
-
-            for record, value in values:
-                if value < lower_bound or value > upper_bound:
-                    findings.append(
-                        self._build_finding(
-                            record=record,
-                            field_name=field_name,
-                            value=value,
-                            rule=rule,
-                            reason=(
-                                "Outlier detected using IQR. "
-                                f"Value {value} is outside "
-                                f"{round(lower_bound, 2)} to "
-                                f"{round(upper_bound, 2)}."
-                            ),
-                        )
-                    )
-
-        return findings
-
-    def _check_z_score_outliers(self, records, fields, rule):
         findings = []
 
         for field_name in fields:
@@ -266,27 +226,31 @@ class SchemaRuleEngine:
             number_values = [value for _, value in values]
 
             average = mean(number_values)
-            standard_deviation = pstdev(number_values)
 
-            if standard_deviation == 0:
+            if average == 0:
                 continue
 
             for record, value in values:
-                z_score = abs((value - average) / standard_deviation)
 
-                if z_score >= rule.outlier_tolerance:
-                    findings.append(
-                        self._build_finding(
-                            record=record,
-                            field_name=field_name,
-                            value=value,
-                            rule=rule,
-                            reason=(
-                                "Outlier detected using Z score. "
-                                f"Z score: {round(z_score, 2)}."
-                            ),
-                        )
+                deviation_percent = (
+                    abs(value - average) / abs(average)
+                ) * 100
+
+                if deviation_percent < rule.outlier_tolerance_percent:
+                    continue
+
+                findings.append(
+                    self._build_finding(
+                        record=record,
+                        field_name=field_name,
+                        value=value,
+                        rule=rule,
+                        reason=(
+                            f"Value differs from the average for this "
+                            f"field by {deviation_percent:.2f}%."
+                        ),
                     )
+                )
 
         return findings
 
@@ -440,7 +404,11 @@ class SchemaRuleEngine:
             deviation_percent=None,
             suggested_clarification=(
                 rule.message
-                or reason
+                or build_clarification_request(
+                    record.sheet_name,
+                    record.record_reference,
+                    field_name,
+                )
             ),
         )
 
@@ -514,22 +482,6 @@ class SchemaRuleEngine:
             return float(cleaned)
         except ValueError:
             return None
-
-    def _percentile(self, values, percentile):
-        if not values:
-            return 0
-
-        index = (len(values) - 1) * (percentile / 100)
-        lower = math.floor(index)
-        upper = math.ceil(index)
-
-        if lower == upper:
-            return values[int(index)]
-
-        lower_value = values[lower]
-        upper_value = values[upper]
-
-        return lower_value + ((upper_value - lower_value) * (index - lower))
 
     def _operator_value(self, operator):
         return operator.value if hasattr(operator, "value") else str(operator)

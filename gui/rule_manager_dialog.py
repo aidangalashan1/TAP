@@ -183,23 +183,18 @@ class RuleManagerDialog:
     # ==================================================
 
     def _new_rule(self):
-        default_outlier_method = None
-        default_outlier_tolerance = None
+        default_outlier_tolerance_percent = None
 
         if self.threshold_settings is not None:
-            default_outlier_method = (
-                self.threshold_settings.default_outlier_method
-            )
-            default_outlier_tolerance = (
-                self.threshold_settings.default_outlier_tolerance
+            default_outlier_tolerance_percent = (
+                self.threshold_settings.default_outlier_tolerance_percent
             )
 
         dialog = RuleWizardDialog(
             self.window,
             self.fields,
             sheet_names=self.sheet_names,
-            default_outlier_method=default_outlier_method,
-            default_outlier_tolerance=default_outlier_tolerance,
+            default_outlier_tolerance_percent=default_outlier_tolerance_percent,
         )
 
         result = dialog.show()

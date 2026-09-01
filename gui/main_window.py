@@ -992,9 +992,8 @@ class MainWindow:
         self._log(
             "Threshold settings saved: "
             f"benchmark {self.threshold_settings.benchmark_threshold_percent}%, "
-            f"outlier method "
-            f"{self.threshold_settings.default_outlier_method.value}, "
-            f"tolerance {self.threshold_settings.default_outlier_tolerance}"
+            f"between-response tolerance "
+            f"{self.threshold_settings.default_outlier_tolerance_percent}%"
         )
 
     # ==================================================
@@ -1158,11 +1157,8 @@ class MainWindow:
                 benchmark_threshold_percent=(
                     self.threshold_settings.benchmark_threshold_percent
                 ),
-                outlier_method=(
-                    self.threshold_settings.default_outlier_method
-                ),
-                outlier_tolerance=(
-                    self.threshold_settings.default_outlier_tolerance
+                outlier_tolerance_percent=(
+                    self.threshold_settings.default_outlier_tolerance_percent
                 ),
             )
         )

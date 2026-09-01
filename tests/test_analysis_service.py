@@ -164,20 +164,28 @@ def test_quick_rule_findings_are_attributed_to_the_right_supplier():
 def test_between_response_comparison_used_when_no_benchmark():
     service = AnalysisService(
         schema_service=FakeSchemaService(),
-        # Default tolerance (3.0 standard deviations) is deliberately
-        # loose; use a tighter one so a clear outlier among only 3
-        # suppliers actually crosses it.
         cross_supplier_comparator=CrossSupplierComparator(
-            outlier_tolerance=1.0
+            outlier_tolerance_percent=25.0
         ),
     )
     workbook_schema = _make_schema_with_sheets(["Sheet1"])
 
+    # 9 suppliers at 100, 1 at 300: average is 120, so the normal
+    # suppliers sit ~17% away from it (under the 25% tolerance) while
+    # the outlier sits 150% away (clearly over).
     suppliers = [
-        ("SupplierA", {"records": [_record("Sheet1", "Row 2", {"FieldA": 100})]}),
-        ("SupplierB", {"records": [_record("Sheet1", "Row 2", {"FieldA": 102})]}),
-        ("SupplierC", {"records": [_record("Sheet1", "Row 2", {"FieldA": 500})]}),
+        (
+            f"Supplier{i}",
+            {"records": [_record("Sheet1", "Row 2", {"FieldA": 100})]},
+        )
+        for i in range(9)
     ]
+    suppliers.append(
+        (
+            "SupplierOutlier",
+            {"records": [_record("Sheet1", "Row 2", {"FieldA": 300})]},
+        )
+    )
 
     results = service.analyse_suppliers(
         workbook_schema=workbook_schema,
@@ -186,7 +194,9 @@ def test_between_response_comparison_used_when_no_benchmark():
         output_folder=None,
     )
 
-    outlier_result = next(r for r in results if r.supplier_name == "SupplierC")
+    outlier_result = next(
+        r for r in results if r.supplier_name == "SupplierOutlier"
+    )
     assert len(outlier_result.findings) == 1
     assert outlier_result.findings[0].category == (
         FindingCategory.BETWEEN_RESPONSE_COMPARISON.value

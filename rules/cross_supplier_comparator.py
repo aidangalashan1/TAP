@@ -2,15 +2,14 @@
 
 import math
 from statistics import mean
-from statistics import pstdev
 
 import config
 from models.pricing_models import BenchmarkCoverage
 from models.pricing_models import Finding
 from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
+from rules.clarification_text import build_clarification_request
 from rules.custom_rule_models import ComparisonBasis
-from rules.custom_rule_models import OutlierMethod
 
 # Cap on how many distinct field names are reported by name in a
 # coverage breakdown - beyond this it's more useful as "N other
@@ -32,12 +31,10 @@ class CrossSupplierComparator:
     def __init__(
         self,
         benchmark_threshold_percent=config.DEFAULT_BENCHMARK_THRESHOLD_PERCENT,
-        outlier_method=OutlierMethod.Z_SCORE,
-        outlier_tolerance=config.DEFAULT_STANDARD_DEVIATION_THRESHOLD,
+        outlier_tolerance_percent=config.DEFAULT_OUTLIER_THRESHOLD_PERCENT,
     ):
         self.benchmark_threshold_percent = benchmark_threshold_percent
-        self.outlier_method = outlier_method
-        self.outlier_tolerance = outlier_tolerance
+        self.outlier_tolerance_percent = outlier_tolerance_percent
 
     # ==================================================
     # Benchmark Coverage
@@ -172,8 +169,7 @@ class CrossSupplierComparator:
             findings.extend(
                 self.compare_statistical(
                     supplier_records,
-                    outlier_method=rule.outlier_method,
-                    outlier_tolerance=rule.outlier_tolerance,
+                    outlier_tolerance_percent=rule.outlier_tolerance_percent,
                     sheet_name=rule.sheet_name,
                     field_names=rule.target_fields or None,
                     rule_label=rule.name,
@@ -300,11 +296,11 @@ class CrossSupplierComparator:
                                 f"{deviation_percent:.2f}%"
                             ),
                             suggested_clarification=(
-                                f"Please confirm the submitted value for "
-                                f"'{field_name}' ({record.record_reference}). "
-                                f"It differs from the benchmark value of "
-                                f"{benchmark_number:.2f} by "
-                                f"{deviation_percent:.2f}%."
+                                build_clarification_request(
+                                    record.sheet_name,
+                                    record.record_reference,
+                                    field_name,
+                                )
                             ),
                         )
                     )
@@ -318,8 +314,7 @@ class CrossSupplierComparator:
     def compare_statistical(
         self,
         supplier_records,
-        outlier_method=None,
-        outlier_tolerance=None,
+        outlier_tolerance_percent=None,
         sheet_name=None,
         field_names=None,
         excluded_rules=None,
@@ -328,26 +323,26 @@ class CrossSupplierComparator:
         """
         supplier_records: dict[supplier_name, list[DataRecord]]
 
-        outlier_method/outlier_tolerance/sheet_name/field_names: when
-        given, scopes this call to a single comparison rule - only
-        that sheet and/or those fields are compared, using this
-        method/tolerance instead of the comparator's default.
+        Flags a supplier's value as an outlier when it differs from
+        the group average (across every supplier's response to that
+        same field) by more than outlier_tolerance_percent - the same
+        raw % diff basis compare_to_benchmark uses, just against a
+        computed average instead of an external reference value.
+
+        outlier_tolerance_percent/sheet_name/field_names: when given,
+        scopes this call to a single comparison rule - only that
+        sheet and/or those fields are compared, using this tolerance
+        instead of the comparator's default.
 
         excluded_rules: comparison rules (already run separately via
         their own scoped call) to skip here, so the default pass
         doesn't double-flag fields a rule already covers.
         """
 
-        method = (
-            outlier_method
-            if outlier_method is not None
-            else self.outlier_method
-        )
-
         tolerance = (
-            outlier_tolerance
-            if outlier_tolerance is not None
-            else self.outlier_tolerance
+            outlier_tolerance_percent
+            if outlier_tolerance_percent is not None
+            else self.outlier_tolerance_percent
         )
 
         groups = {}
@@ -384,40 +379,34 @@ class CrossSupplierComparator:
             if len(entries) < 3:
                 continue
 
-            if method == OutlierMethod.Z_SCORE:
-                findings.extend(
-                    self._z_score_outliers(entries, tolerance, rule_label)
-                )
-            else:
-                findings.extend(
-                    self._iqr_outliers(entries, tolerance, rule_label)
-                )
+            findings.extend(
+                self._average_outliers(entries, tolerance, rule_label)
+            )
 
         return findings
 
-    def _z_score_outliers(self, entries, tolerance, rule_label=None):
+    def _average_outliers(self, entries, tolerance_percent, rule_label=None):
         values = [entry[3] for entry in entries]
 
         average = mean(values)
-        standard_deviation = pstdev(values)
 
-        if standard_deviation == 0:
+        if average == 0:
             return []
 
         findings = []
 
-        comparator_label = "Supplier Group Average (Z-Score)"
+        comparator_label = "Supplier Group Average"
 
         if rule_label:
-            comparator_label = (
-                f"Supplier Group Average (Z-Score, rule: {rule_label})"
-            )
+            comparator_label = f"Supplier Group Average (rule: {rule_label})"
 
         for supplier_name, record, field_name, value in entries:
 
-            z_score = abs((value - average) / standard_deviation)
+            deviation_percent = (
+                abs(value - average) / abs(average)
+            ) * 100
 
-            if z_score < tolerance:
+            if deviation_percent < tolerance_percent:
                 continue
 
             findings.append(
@@ -428,59 +417,10 @@ class CrossSupplierComparator:
                     value=value,
                     comparator_value=average,
                     comparator_label=comparator_label,
-                    severity=self._severity_for_z_score(z_score, tolerance),
+                    deviation_percent=deviation_percent,
                     reason=(
-                        f"Value differs from the supplier group average "
-                        f"({round(average, 2)}) by a Z score of "
-                        f"{round(z_score, 2)}."
-                    ),
-                )
-            )
-
-        return findings
-
-    def _iqr_outliers(self, entries, tolerance, rule_label=None):
-        values = sorted(entry[3] for entry in entries)
-
-        if len(values) < 4:
-            return []
-
-        q1 = self._percentile(values, 25)
-        q3 = self._percentile(values, 75)
-
-        iqr = q3 - q1
-
-        if iqr == 0:
-            return []
-
-        lower_bound = q1 - (tolerance * iqr)
-        upper_bound = q3 + (tolerance * iqr)
-
-        findings = []
-
-        comparator_label = "Supplier Group Median (IQR)"
-
-        if rule_label:
-            comparator_label = f"Supplier Group Median (IQR, rule: {rule_label})"
-
-        for supplier_name, record, field_name, value in entries:
-
-            if lower_bound <= value <= upper_bound:
-                continue
-
-            findings.append(
-                self._build_statistical_finding(
-                    supplier_name=supplier_name,
-                    record=record,
-                    field_name=field_name,
-                    value=value,
-                    comparator_value=(q1 + q3) / 2,
-                    comparator_label=comparator_label,
-                    severity=Severity.MEDIUM,
-                    reason=(
-                        f"Value is outside the expected supplier group "
-                        f"range of {round(lower_bound, 2)} to "
-                        f"{round(upper_bound, 2)} (IQR method)."
+                        f"Value differs from the supplier group average by "
+                        f"{deviation_percent:.2f}%"
                     ),
                 )
             )
@@ -494,13 +434,13 @@ class CrossSupplierComparator:
         field_name,
         value,
         comparator_value,
-        severity,
+        deviation_percent,
         reason,
         comparator_label="Comparator Value",
     ):
         return Finding(
             supplier_name=supplier_name,
-            severity=severity,
+            severity=self._severity_for_deviation(deviation_percent),
             worksheet_name=record.sheet_name,
             cell_reference=record.get_cell_reference(field_name),
             item_description=f"{record.record_reference} | {field_name}",
@@ -508,11 +448,14 @@ class CrossSupplierComparator:
             category=FindingCategory.BETWEEN_RESPONSE_COMPARISON.value,
             comparator_value=str(round(comparator_value, 2)),
             comparator_label=comparator_label,
-            deviation_percent=None,
+            deviation_percent=round(deviation_percent, 2),
             reason=reason,
             suggested_clarification=(
-                f"Please confirm the submitted value for '{field_name}' "
-                f"({record.record_reference}). {reason}"
+                build_clarification_request(
+                    record.sheet_name,
+                    record.record_reference,
+                    field_name,
+                )
             ),
         )
 
@@ -543,12 +486,6 @@ class CrossSupplierComparator:
             return Severity.LOW
 
         return Severity.INFO
-
-    def _severity_for_z_score(self, z_score, tolerance):
-        if z_score >= tolerance * 1.5:
-            return Severity.HIGH
-
-        return Severity.MEDIUM
 
     def _matches_scope(self, sheet_name, field_name, scope_sheet_name, scope_field_names):
         if scope_sheet_name and sheet_name != scope_sheet_name:
@@ -595,19 +532,3 @@ class CrossSupplierComparator:
             return float(cleaned)
         except ValueError:
             return None
-
-    def _percentile(self, values, percentile):
-        if not values:
-            return 0
-
-        index = (len(values) - 1) * (percentile / 100)
-        lower = math.floor(index)
-        upper = math.ceil(index)
-
-        if lower == upper:
-            return values[int(index)]
-
-        lower_value = values[lower]
-        upper_value = values[upper]
-
-        return lower_value + ((upper_value - lower_value) * (index - lower))

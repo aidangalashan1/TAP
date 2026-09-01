@@ -9,7 +9,6 @@ from rules.custom_rule_models import (
     CustomRuleRightValueType,
     CustomRuleSeverity,
     CustomRuleType,
-    OutlierMethod,
 )
 from rules.custom_rule_store import CustomRuleStore
 
@@ -23,8 +22,7 @@ def test_round_trips_a_quick_rule(tmp_path):
         rule_type=CustomRuleType.QUICK_RULES,
         check_blanks=True,
         check_outliers=True,
-        outlier_method=OutlierMethod.Z_SCORE,
-        outlier_tolerance=2.5,
+        outlier_tolerance_percent=20.0,
         target_fields=["Day Rate"],
     )
 
@@ -36,9 +34,32 @@ def test_round_trips_a_quick_rule(tmp_path):
     assert loaded[0].severity == CustomRuleSeverity.HIGH
     assert loaded[0].rule_type == CustomRuleType.QUICK_RULES
     assert loaded[0].check_blanks is True
-    assert loaded[0].outlier_method == OutlierMethod.Z_SCORE
-    assert loaded[0].outlier_tolerance == 2.5
+    assert loaded[0].outlier_tolerance_percent == 20.0
     assert loaded[0].target_fields == ["Day Rate"]
+
+
+def test_round_trips_old_saved_outlier_tolerance_key(tmp_path):
+    """
+    Rules saved before the Z-Score/IQR -> average-%-tolerance
+    simplification used the key "outlier_tolerance" instead of
+    "outlier_tolerance_percent" - old files must still load rather
+    than silently losing the value (even though its old meaning, a
+    stddev/IQR multiplier, doesn't map onto a percentage; the user
+    can adjust it in the wizard afterward).
+    """
+
+    file_path = tmp_path / "rules.json"
+    file_path.write_text(
+        '[{"name": "Old Rule", "severity": "MEDIUM", '
+        '"rule_type": "QUICK_RULES", "check_outliers": true, '
+        '"outlier_tolerance": 1.5}]'
+    )
+
+    store = CustomRuleStore(file_path=str(file_path))
+    loaded = store.load_rules()
+
+    assert len(loaded) == 1
+    assert loaded[0].outlier_tolerance_percent == 1.5
 
 
 def test_round_trips_an_advanced_rule_with_conditions(tmp_path):
