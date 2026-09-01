@@ -6,6 +6,13 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.styles import PatternFill
 
+# Leading characters Excel treats as the start of a formula (or, for
+# older Excel/DDE, a command) when a cell is opened - not just "=".
+# A supplier's submitted values (sheet names, cell content) flow
+# into this report unmodified, so anything that could itself become
+# a live formula in the report has to be neutralised before writing.
+FORMULA_TRIGGER_CHARACTERS = ("=", "+", "-", "@", "\t", "\r")
+
 
 class ReportWriter:
 
@@ -50,7 +57,7 @@ class ReportWriter:
         supplier_result
     ):
         worksheet["A1"] = "Supplier"
-        worksheet["B1"] = supplier_result.supplier_name
+        worksheet["B1"] = self._safe_cell_text(supplier_result.supplier_name)
 
         actionable_findings = [
             finding
@@ -222,7 +229,9 @@ class ReportWriter:
                 reverse=True,
             ):
                 row += 1
-                worksheet.cell(row=row, column=1).value = sheet_name
+                worksheet.cell(
+                    row=row, column=1
+                ).value = self._safe_cell_text(sheet_name)
                 worksheet.cell(row=row, column=2).value = count
 
         if coverage.unmatched_by_field:
@@ -236,7 +245,9 @@ class ReportWriter:
 
             for field_name, count in coverage.unmatched_by_field.items():
                 row += 1
-                worksheet.cell(row=row, column=1).value = field_name
+                worksheet.cell(
+                    row=row, column=1
+                ).value = self._safe_cell_text(field_name)
                 worksheet.cell(row=row, column=2).value = count
 
         return row
@@ -307,10 +318,12 @@ class ReportWriter:
             worksheet.cell(
                 row=row_number,
                 column=4
-            ).value = getattr(
-                finding,
-                "worksheet_name",
-                ""
+            ).value = self._safe_cell_text(
+                getattr(
+                    finding,
+                    "worksheet_name",
+                    ""
+                )
             )
 
             worksheet.cell(
@@ -326,19 +339,23 @@ class ReportWriter:
             worksheet.cell(
                 row=row_number,
                 column=6
-            ).value = getattr(
-                finding,
-                "item_description",
-                ""
+            ).value = self._safe_cell_text(
+                getattr(
+                    finding,
+                    "item_description",
+                    ""
+                )
             )
 
             worksheet.cell(
                 row=row_number,
                 column=7
-            ).value = getattr(
-                finding,
-                "actual_value",
-                ""
+            ).value = self._safe_cell_text(
+                getattr(
+                    finding,
+                    "actual_value",
+                    ""
+                )
             )
 
             comparator_value = getattr(
@@ -360,7 +377,7 @@ class ReportWriter:
                 row=row_number,
                 column=9
             ).value = (
-                comparator_value
+                self._safe_cell_text(comparator_value)
                 if comparator_value is not None
                 else ""
             )
@@ -420,6 +437,29 @@ class ReportWriter:
             worksheet.column_dimensions[
                 column
             ].width = width
+
+    def _safe_cell_text(
+        self,
+        value,
+    ):
+        """
+        Neutralises Excel formula/DDE injection: if a value that
+        traces back to a supplier's submitted workbook (a cell value,
+        a sheet name) starts with a formula-trigger character, Excel
+        would treat it as a live formula the moment this report is
+        opened - not just when read back with openpyxl. Prefixing
+        with an apostrophe forces Excel to treat it as literal text,
+        the same fix spreadsheet software itself uses for "Keep as
+        Text" imports.
+        """
+
+        if not isinstance(value, str):
+            return value
+
+        if value.startswith(FORMULA_TRIGGER_CHARACTERS):
+            return "'" + value
+
+        return value
 
     def _severity_name(
         self,
