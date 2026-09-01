@@ -91,6 +91,10 @@ class WorkbookMapperDialog:
             value=False
         )
 
+        self.show_benchmark_var = tk.BooleanVar(
+            value=False
+        )
+
         self.tool_var = tk.StringVar(
             value=list(self.TOOLS.keys())[1]
         )
@@ -177,7 +181,10 @@ class WorkbookMapperDialog:
                 "Drag to select cells in the grid, choose a zone type "
                 "below, then click Apply. Yellow = detected but not "
                 "reviewed, green = confirmed input, red = removed, "
-                "black = ignored / not an input cell."
+                "black = ignored / not an input cell. Tick 'Show "
+                "Benchmark Rates' to overlay the matching benchmark "
+                "value under each cell (requires a benchmark workbook "
+                "loaded in Step 2)."
             ),
             wraplength=1000,
         ).pack(anchor="w", padx=5, pady=(0, 5))
@@ -225,6 +232,21 @@ class WorkbookMapperDialog:
             side=tk.LEFT,
             padx=5,
         )
+
+        benchmark_checkbox = ttk.Checkbutton(
+            tool_row,
+            text="Show Benchmark Rates",
+            variable=self.show_benchmark_var,
+            command=self._refresh_display,
+        )
+
+        benchmark_checkbox.pack(
+            side=tk.LEFT,
+            padx=5,
+        )
+
+        if self.benchmark_workbook is None:
+            benchmark_checkbox.configure(state="disabled")
 
     def _build_sheet_panel(
         self,
@@ -563,21 +585,47 @@ class WorkbookMapperDialog:
             for _ in range(max_row)
         ]
 
+        overlay_benchmark = (
+            self.show_benchmark_var.get()
+            and self.benchmark_workbook is not None
+        )
+
+        benchmark_lookup = (
+            self._build_benchmark_lookup()
+            if overlay_benchmark
+            else {}
+        )
+
         for cell in worksheet.cells:
 
             self.cell_lookup[
                 cell.cell_reference
             ] = cell
 
-            data[
-                cell.row_number - 1
-            ][
-                cell.column_number - 1
-            ] = (
+            display_value = (
                 ""
                 if cell.value is None
                 else str(cell.value)
             )
+
+            if overlay_benchmark:
+
+                benchmark_value = benchmark_lookup.get(
+                    cell.cell_reference
+                )
+
+                if benchmark_value is not None:
+                    display_value = (
+                        f"{display_value} | Bench: {benchmark_value}"
+                        if display_value
+                        else f"Bench: {benchmark_value}"
+                    )
+
+            data[
+                cell.row_number - 1
+            ][
+                cell.column_number - 1
+            ] = display_value
 
         self.sheet_control.set_sheet_data(
             data
@@ -1005,8 +1053,17 @@ class WorkbookMapperDialog:
         the benchmark workbook, so the user can validate the rate that
         will be used for benchmark comparison against this cell.
         """
+        return self._build_benchmark_lookup().get(cell_reference)
+
+    def _build_benchmark_lookup(self):
+        """
+        Maps cell_reference -> value for every cell on the current
+        sheet in the benchmark workbook, so the grid overlay and the
+        inspector can both look up a cell's benchmark rate without
+        re-scanning the benchmark worksheet per cell.
+        """
         if self.benchmark_workbook is None:
-            return None
+            return {}
 
         benchmark_worksheet = (
             self.benchmark_workbook.get_worksheet(
@@ -1015,14 +1072,13 @@ class WorkbookMapperDialog:
         )
 
         if benchmark_worksheet is None:
-            return None
+            return {}
 
-        for benchmark_cell in benchmark_worksheet.cells:
-
-            if benchmark_cell.cell_reference == cell_reference:
-                return benchmark_cell.value
-
-        return None
+        return {
+            benchmark_cell.cell_reference: benchmark_cell.value
+            for benchmark_cell in benchmark_worksheet.cells
+            if benchmark_cell.value is not None
+        }
 
     def _input_area_selected(
         self,
