@@ -20,6 +20,7 @@ from services.analysis_service import AnalysisService
 from services.custom_rules_service import CustomRulesService
 from services.mapping_profile_service import MappingProfileService
 from services.schema_service import SchemaService
+from services.session_store import SessionStore
 from services.workbook_loader_service import WorkbookLoaderService
 
 
@@ -49,6 +50,7 @@ class MainWindow:
         self.mapping_profile_service = MappingProfileService()
         self.workbook_loader_service = WorkbookLoaderService()
         self.threshold_settings_store = ThresholdSettingsStore()
+        self.session_store = SessionStore()
 
         self.threshold_settings = self.threshold_settings_store.load()
 
@@ -77,6 +79,8 @@ class MainWindow:
 
         self._build_ui()
         self._refresh_state()
+
+        self._offer_session_resume()
 
     # ==================================================
     # UI
@@ -211,10 +215,14 @@ class MainWindow:
             number=5,
             title="Load Supplier Workbooks",
             description=(
-                "Choose one or more completed supplier workbooks "
-                "to analyse."
+                "Choose one or more completed supplier workbooks to "
+                "analyse, or pick a folder and every Excel file in it "
+                "will be used."
             ),
-            buttons=[("Choose Suppliers...", self._select_suppliers)],
+            buttons=[
+                ("Choose Suppliers...", self._select_suppliers),
+                ("Choose Supplier Folder...", self._select_supplier_folder),
+            ],
         )
 
         analysis_frame = self._build_step(
@@ -511,6 +519,193 @@ class MainWindow:
         messagebox.showerror(title, message)
 
     # ==================================================
+    # Session
+    # ==================================================
+
+    def _save_session(self):
+        """
+        Best-effort persistence of the file paths currently loaded,
+        so relaunching the app can offer to resume instead of forcing
+        every file to be reselected. Never allowed to interrupt the
+        user's workflow if it fails.
+        """
+
+        try:
+            self.session_store.save(
+                {
+                    "template_file": self.template_file,
+                    "benchmark_file": self.benchmark_file,
+                    "supplier_files": self.supplier_files,
+                    "output_folder": self.output_folder,
+                }
+            )
+        except Exception:
+            pass
+
+    def _offer_session_resume(self):
+
+        session_data = self.session_store.load()
+
+        if not session_data:
+            return
+
+        template_file = session_data.get("template_file", "")
+        benchmark_file = session_data.get("benchmark_file", "")
+        supplier_files = session_data.get("supplier_files", []) or []
+
+        existing_supplier_files = [
+            path for path in supplier_files if Path(path).exists()
+        ]
+
+        template_exists = bool(
+            template_file and Path(template_file).exists()
+        )
+        benchmark_exists = bool(
+            benchmark_file and Path(benchmark_file).exists()
+        )
+
+        if not template_exists and not existing_supplier_files:
+            # Nothing left to resume - the files have moved or been
+            # deleted since the last session.
+            return
+
+        summary_lines = []
+
+        if template_exists:
+            summary_lines.append(f"Template: {Path(template_file).name}")
+
+        if benchmark_exists:
+            summary_lines.append(f"Benchmark: {Path(benchmark_file).name}")
+
+        if existing_supplier_files:
+            summary_lines.append(
+                f"Suppliers: {len(existing_supplier_files)} workbook(s)"
+            )
+
+        resume = messagebox.askyesno(
+            "Resume Previous Session?",
+            (
+                "Found files from your last session:\n\n"
+                + "\n".join(summary_lines)
+                + "\n\nResume with these?"
+            ),
+        )
+
+        if resume:
+            self._resume_session(session_data)
+
+    def _resume_session(self, session_data):
+
+        template_file = session_data.get("template_file", "")
+        benchmark_file = session_data.get("benchmark_file", "")
+        supplier_files = session_data.get("supplier_files", []) or []
+        output_folder = session_data.get("output_folder", "")
+
+        if template_file and Path(template_file).exists():
+
+            try:
+                self.template_file = template_file
+                self.template_workbook = (
+                    self.workbook_loader_service.load_workbook(
+                        template_file
+                    )
+                )
+
+                self.workbook_schema = self.schema_service.build_schema(
+                    self.template_workbook
+                )
+
+                self._try_auto_apply_profile(template_file)
+
+                self._log(
+                    f"Resumed template workbook: {Path(template_file).name}"
+                )
+
+            except Exception as error:
+                self._log(f"Could not resume template: {error}")
+
+        elif template_file:
+            self._log(
+                f"Skipped resuming template - file no longer found: "
+                f"{template_file}"
+            )
+
+        if benchmark_file and Path(benchmark_file).exists():
+
+            try:
+                self.benchmark_file = benchmark_file
+                self.benchmark_workbook = (
+                    self.workbook_loader_service.load_workbook(
+                        benchmark_file
+                    )
+                )
+
+                self._log(
+                    f"Resumed benchmark workbook: "
+                    f"{Path(benchmark_file).name}"
+                )
+
+            except Exception as error:
+                self._log(f"Could not resume benchmark: {error}")
+
+        elif benchmark_file:
+            self._log(
+                f"Skipped resuming benchmark - file no longer found: "
+                f"{benchmark_file}"
+            )
+
+        existing_supplier_files = [
+            path for path in supplier_files if Path(path).exists()
+        ]
+
+        missing_supplier_count = (
+            len(supplier_files) - len(existing_supplier_files)
+        )
+
+        if existing_supplier_files:
+            self.supplier_files = existing_supplier_files
+
+            self._log(
+                f"Resumed {len(existing_supplier_files)} supplier "
+                "workbook(s)"
+            )
+
+        if missing_supplier_count:
+            self._log(
+                f"Skipped {missing_supplier_count} supplier workbook(s) "
+                "no longer found on disk"
+            )
+
+        if output_folder:
+            self.output_folder = output_folder
+
+        self._invalidate_analysis()
+        self._refresh_state()
+
+    def _try_auto_apply_profile(self, template_file):
+        """
+        If a mapping profile was saved under this template's own file
+        name, apply it automatically on resume - the common case for
+        a user who reviewed mapping once and saved it for reuse.
+        """
+
+        profile_name = Path(template_file).stem
+
+        if profile_name not in self.mapping_profile_service.list_profiles():
+            return
+
+        profile_data = self.mapping_profile_service.load_profile(
+            profile_name
+        )
+
+        self.workbook_schema = self.mapping_profile_service.apply_profile(
+            self.workbook_schema,
+            profile_data,
+        )
+
+        self._log(f"Auto-applied mapping profile: {profile_name}")
+
+    # ==================================================
     # File Selection
     # ==================================================
 
@@ -544,6 +739,7 @@ class MainWindow:
         self.template_file = file_path
         self.template_workbook = template_workbook
         self._invalidate_analysis()
+        self._save_session()
 
         self._refresh_state()
 
@@ -581,6 +777,7 @@ class MainWindow:
         self.benchmark_file = file_path
         self.benchmark_workbook = benchmark_workbook
         self._invalidate_analysis()
+        self._save_session()
 
         self._refresh_state()
 
@@ -601,11 +798,47 @@ class MainWindow:
 
         self.supplier_files = list(files)
         self._invalidate_analysis()
+        self._save_session()
 
         self._refresh_state()
 
         self._log(
             f"{len(self.supplier_files)} supplier workbook(s) selected"
+        )
+
+    def _select_supplier_folder(self):
+
+        folder = filedialog.askdirectory()
+
+        if not folder:
+            return
+
+        discovered = sorted(
+            str(path)
+            for path in Path(folder).iterdir()
+            if path.is_file()
+            and config.is_supported_excel_file(path)
+            # Excel's own lock files for currently-open workbooks,
+            # e.g. "~$Supplier A.xlsx" - not real workbooks.
+            and not path.name.startswith("~$")
+        )
+
+        if not discovered:
+            messagebox.showwarning(
+                "No Workbooks Found",
+                f"No Excel files were found in:\n{folder}",
+            )
+            return
+
+        self.supplier_files = discovered
+        self._invalidate_analysis()
+        self._save_session()
+
+        self._refresh_state()
+
+        self._log(
+            f"{len(self.supplier_files)} supplier workbook(s) found in "
+            f"folder: {folder}"
         )
 
     # ==================================================
@@ -779,6 +1012,7 @@ class MainWindow:
 
         self.output_folder = folder
         self._invalidate_analysis()
+        self._save_session()
 
         self._refresh_state()
 
@@ -958,6 +1192,40 @@ class MainWindow:
                 f"{len(result.findings)} findings"
             )
 
+        coverage_summary_line = ""
+
+        if self.benchmark_workbook is not None:
+
+            coverages = [
+                result.benchmark_coverage
+                for result in results
+                if result.benchmark_coverage is not None
+            ]
+
+            total_fields = sum(c.total_fields for c in coverages)
+            matched_fields = sum(c.matched_fields for c in coverages)
+
+            match_rate = (
+                round((matched_fields / total_fields) * 100, 1)
+                if total_fields
+                else 0.0
+            )
+
+            self._log(
+                f"Benchmark coverage across all suppliers: "
+                f"{matched_fields}/{total_fields} fields matched "
+                f"({match_rate}%). See each report's Summary sheet "
+                "for the per-supplier breakdown."
+            )
+
+            if match_rate < 100:
+                coverage_summary_line = (
+                    f"\nBenchmark match rate: {match_rate}% "
+                    f"({matched_fields}/{total_fields} fields) - see "
+                    "each report's Summary sheet for unmatched sheets/"
+                    "fields.\n"
+                )
+
         self.analysis_complete = True
         self.last_report_paths = [
             result.report_path for result in results if result.report_path
@@ -970,7 +1238,8 @@ class MainWindow:
             (
                 f"Analysis complete.\n\n"
                 f"Reports generated: {len(results)}\n"
-                f"Saved to: {self.output_folder}\n\n"
+                f"Saved to: {self.output_folder}\n"
+                f"{coverage_summary_line}\n"
                 "Open the reports folder now?"
             ),
         )
