@@ -59,15 +59,6 @@ class RuleManagerDialog:
         main = ttk.Frame(self.window, padding=10)
         main.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(
-            main,
-            text=(
-                "Rules run against every supplier's confirmed fields "
-                "during analysis. Disabled rules are kept but skipped."
-            ),
-            wraplength=760,
-        ).pack(anchor="w", pady=(0, 10))
-
         self.rule_tree = ttk.Treeview(
             main,
             columns=("type", "severity", "status"),

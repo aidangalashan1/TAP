@@ -158,10 +158,6 @@ class MainWindow:
             key="template",
             number=1,
             title="Load Template Workbook",
-            description=(
-                "Choose the blank tender template. Its layout "
-                "is used to identify where supplier answers go."
-            ),
             buttons=[("Choose Template...", self._select_template)],
         )
 
@@ -170,11 +166,6 @@ class MainWindow:
             key="benchmark",
             number=2,
             title="Load Benchmark Workbook (Optional)",
-            description=(
-                "Choose a benchmark workbook to compare supplier "
-                "pricing against known reference values. Loading it "
-                "here lets Step 3 show the benchmark rate per cell."
-            ),
             buttons=[("Choose Benchmark...", self._select_benchmark)],
         )
 
@@ -183,10 +174,6 @@ class MainWindow:
             key="mapping",
             number=3,
             title="Review Field Mapping",
-            description=(
-                "Confirm which cells in the template are supplier "
-                "input fields, or load a saved mapping profile."
-            ),
             buttons=[
                 ("Review Mapping...", self._review_mapping),
                 ("Mapping Profiles...", self._manage_profiles),
@@ -198,11 +185,6 @@ class MainWindow:
             key="rules",
             number=4,
             title="Define Rules (Optional)",
-            description=(
-                "Create, edit, enable/disable, or delete rules that "
-                "catch blanks, zeroes, duplicates, and outliers in "
-                "supplier responses."
-            ),
             buttons=[
                 ("Manage Rules...", self._manage_rules),
                 ("Threshold Settings...", self._open_threshold_settings),
@@ -214,11 +196,6 @@ class MainWindow:
             key="suppliers",
             number=5,
             title="Load Supplier Workbooks",
-            description=(
-                "Choose one or more completed supplier workbooks to "
-                "analyse, or pick a folder and every Excel file in it "
-                "will be used."
-            ),
             buttons=[
                 ("Choose Suppliers...", self._select_suppliers),
                 ("Choose Supplier Folder...", self._select_supplier_folder),
@@ -230,12 +207,6 @@ class MainWindow:
             key="analysis",
             number=6,
             title="Run Analysis",
-            description=(
-                "Compare each supplier's confirmed field values "
-                "against the benchmark (if loaded) or statistically "
-                "against the other suppliers, and generate a "
-                "findings report for each one."
-            ),
             buttons=[("Run Analysis", self._run_analysis)],
         )
 
@@ -275,7 +246,6 @@ class MainWindow:
         key,
         number,
         title,
-        description,
         buttons,
     ):
 
@@ -289,13 +259,6 @@ class MainWindow:
             fill=tk.X,
             pady=(0, 6),
         )
-
-        ttk.Label(
-            frame,
-            text=description,
-            wraplength=900,
-            justify="left",
-        ).pack(anchor="w", pady=(0, 6))
 
         row = ttk.Frame(frame)
 

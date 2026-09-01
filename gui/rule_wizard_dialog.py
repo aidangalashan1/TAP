@@ -399,15 +399,6 @@ class RuleWizardDialog:
     # ==================================================
 
     def _build_quick_rules_body(self):
-        ttk.Label(
-            self.body_frame,
-            text=(
-                "Quick rules run across detected workbook fields. "
-                "Use Advanced Rule for bespoke field-to-field logic."
-            ),
-            wraplength=780,
-        ).pack(anchor="w", pady=(0, 10))
-
         ttk.Checkbutton(
             self.body_frame,
             text="Check blank values",
@@ -482,18 +473,6 @@ class RuleWizardDialog:
     # ==================================================
 
     def _build_comparison_rule_body(self):
-        ttk.Label(
-            self.body_frame,
-            text=(
-                "Scopes a benchmark or between-response comparison to "
-                "a specific sheet and/or fields, optionally overriding "
-                "the global default threshold for just that scope. "
-                "Leave threshold/tolerance blank to use the global "
-                "default from Threshold Settings."
-            ),
-            wraplength=780,
-        ).pack(anchor="w", pady=(0, 10))
-
         basis_row = ttk.Frame(self.body_frame)
         basis_row.pack(anchor="w", pady=(0, 8), fill=tk.X)
 
@@ -563,7 +542,7 @@ class RuleWizardDialog:
         if basis == ComparisonBasis.BENCHMARK:
             ttk.Label(
                 self.comparison_body_frame,
-                text="Threshold override (%):",
+                text="Threshold (%, blank = default):",
             ).grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
             ttk.Entry(
@@ -575,7 +554,7 @@ class RuleWizardDialog:
         else:
             ttk.Label(
                 self.comparison_body_frame,
-                text="Tolerance override (%):",
+                text="Tolerance (%, blank = default):",
             ).grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
             ttk.Combobox(
@@ -590,16 +569,6 @@ class RuleWizardDialog:
     # ==================================================
 
     def _build_advanced_rules_body(self):
-        ttk.Label(
-            self.body_frame,
-            text=(
-                "Build one or more conditions on the confirmed fields. "
-                "A finding is raised on a record when the conditions "
-                "match, combined by AND/OR below."
-            ),
-            wraplength=780,
-        ).pack(anchor="w", pady=(0, 10))
-
         match_row = ttk.Frame(self.body_frame)
         match_row.pack(anchor="w", pady=(0, 10))
 

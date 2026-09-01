@@ -25,7 +25,7 @@ class ThresholdSettingsDialog:
 
         self.window = tk.Toplevel(parent)
         self.window.title("Threshold Settings")
-        self.window.geometry("520x280")
+        self.window.geometry("420x200")
         self.window.transient(parent)
         self.window.grab_set()
 
@@ -43,22 +43,14 @@ class ThresholdSettingsDialog:
             main,
             text="Benchmark Comparison",
             font=("", 10, "bold"),
-        ).pack(anchor="w")
-
-        ttk.Label(
-            main,
-            text=(
-                "Raw % difference from the benchmark rate at which a "
-                "supplier value is flagged."
-            ),
-            wraplength=470,
-            foreground="#555555",
         ).pack(anchor="w", pady=(0, 5))
 
         benchmark_row = ttk.Frame(main)
         benchmark_row.pack(anchor="w", pady=(0, 15))
 
-        ttk.Label(benchmark_row, text="Threshold (%):").pack(side=tk.LEFT)
+        ttk.Label(
+            benchmark_row, text="Threshold vs benchmark rate (%):"
+        ).pack(side=tk.LEFT)
 
         self.benchmark_percent_var = tk.StringVar(
             value=str(self.settings.benchmark_threshold_percent)
@@ -76,26 +68,14 @@ class ThresholdSettingsDialog:
             main,
             text="Between-Response Outlier Detection",
             font=("", 10, "bold"),
-        ).pack(anchor="w")
-
-        ttk.Label(
-            main,
-            text=(
-                "Default % tolerance either side of the group average "
-                "(across every supplier's response to the same field) "
-                "at which a value is flagged - e.g. a 25% tolerance "
-                "against a £5.00 average flags anything below £3.75 "
-                "or above £6.25. Individual rules in the Rule Wizard "
-                "can override this."
-            ),
-            wraplength=470,
-            foreground="#555555",
         ).pack(anchor="w", pady=(0, 5))
 
         tolerance_row = ttk.Frame(main)
         tolerance_row.pack(anchor="w")
 
-        ttk.Label(tolerance_row, text="Tolerance (%):").pack(side=tk.LEFT)
+        ttk.Label(
+            tolerance_row, text="Tolerance around group average (%):"
+        ).pack(side=tk.LEFT)
 
         self.outlier_tolerance_var = tk.StringVar(
             value=str(self.settings.default_outlier_tolerance_percent)
