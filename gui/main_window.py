@@ -958,6 +958,40 @@ class MainWindow:
                 f"{len(result.findings)} findings"
             )
 
+        coverage_summary_line = ""
+
+        if self.benchmark_workbook is not None:
+
+            coverages = [
+                result.benchmark_coverage
+                for result in results
+                if result.benchmark_coverage is not None
+            ]
+
+            total_fields = sum(c.total_fields for c in coverages)
+            matched_fields = sum(c.matched_fields for c in coverages)
+
+            match_rate = (
+                round((matched_fields / total_fields) * 100, 1)
+                if total_fields
+                else 0.0
+            )
+
+            self._log(
+                f"Benchmark coverage across all suppliers: "
+                f"{matched_fields}/{total_fields} fields matched "
+                f"({match_rate}%). See each report's Summary sheet "
+                "for the per-supplier breakdown."
+            )
+
+            if match_rate < 100:
+                coverage_summary_line = (
+                    f"\nBenchmark match rate: {match_rate}% "
+                    f"({matched_fields}/{total_fields} fields) - see "
+                    "each report's Summary sheet for unmatched sheets/"
+                    "fields.\n"
+                )
+
         self.analysis_complete = True
         self.last_report_paths = [
             result.report_path for result in results if result.report_path
@@ -970,7 +1004,8 @@ class MainWindow:
             (
                 f"Analysis complete.\n\n"
                 f"Reports generated: {len(results)}\n"
-                f"Saved to: {self.output_folder}\n\n"
+                f"Saved to: {self.output_folder}\n"
+                f"{coverage_summary_line}\n"
                 "Open the reports folder now?"
             ),
         )

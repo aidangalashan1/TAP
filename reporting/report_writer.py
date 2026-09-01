@@ -89,11 +89,20 @@ class ReportWriter:
             findings=expected_findings,
         )
 
-        self._write_category_table(
+        row = self._write_category_table(
             worksheet,
             row=row + 1,
             findings=supplier_result.findings,
         )
+
+        coverage = getattr(supplier_result, "benchmark_coverage", None)
+
+        if coverage is not None:
+            self._write_coverage_table(
+                worksheet,
+                row=row + 1,
+                coverage=coverage,
+            )
 
         self._bold_row(worksheet, 1)
 
@@ -160,6 +169,75 @@ class ReportWriter:
             row += 1
             worksheet.cell(row=row, column=1).value = category
             worksheet.cell(row=row, column=2).value = count
+
+        return row
+
+    def _write_coverage_table(
+        self,
+        worksheet,
+        row,
+        coverage,
+    ):
+        """
+        Reports how completely this supplier's submitted fields could
+        be checked against the benchmark workbook, so a low match
+        rate is visible in the report itself rather than only in the
+        mapping viewer - a strong sign the benchmark isn't attached
+        correctly for this sheet/field even before any deviations are
+        considered.
+        """
+
+        worksheet.cell(row=row, column=1).value = "Benchmark Coverage"
+        self._bold_row(worksheet, row)
+
+        row += 1
+
+        worksheet.cell(row=row, column=1).value = "Fields Submitted"
+        worksheet.cell(row=row, column=2).value = coverage.total_fields
+
+        row += 1
+
+        worksheet.cell(row=row, column=1).value = "Matched to a Benchmark Value"
+        worksheet.cell(row=row, column=2).value = coverage.matched_fields
+
+        row += 1
+
+        worksheet.cell(row=row, column=1).value = "Match Rate"
+        worksheet.cell(row=row, column=2).value = (
+            f"{coverage.match_rate_percent}%"
+        )
+
+        if coverage.unmatched_by_sheet:
+
+            row += 2
+
+            worksheet.cell(
+                row=row, column=1
+            ).value = "Unmatched Fields by Sheet"
+            self._bold_row(worksheet, row)
+
+            for sheet_name, count in sorted(
+                coverage.unmatched_by_sheet.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            ):
+                row += 1
+                worksheet.cell(row=row, column=1).value = sheet_name
+                worksheet.cell(row=row, column=2).value = count
+
+        if coverage.unmatched_by_field:
+
+            row += 2
+
+            worksheet.cell(
+                row=row, column=1
+            ).value = "Unmatched Fields by Field Name"
+            self._bold_row(worksheet, row)
+
+            for field_name, count in coverage.unmatched_by_field.items():
+                row += 1
+                worksheet.cell(row=row, column=1).value = field_name
+                worksheet.cell(row=row, column=2).value = count
 
         return row
 

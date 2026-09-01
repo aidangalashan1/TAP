@@ -5,11 +5,17 @@ from statistics import mean
 from statistics import pstdev
 
 import config
+from models.pricing_models import BenchmarkCoverage
 from models.pricing_models import Finding
 from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 from rules.custom_rule_models import ComparisonBasis
 from rules.custom_rule_models import OutlierMethod
+
+# Cap on how many distinct field names are reported by name in a
+# coverage breakdown - beyond this it's more useful as "N other
+# fields" than a wall of individual entries.
+MAX_REPORTED_UNMATCHED_FIELDS = 15
 
 
 class CrossSupplierComparator:
@@ -32,6 +38,83 @@ class CrossSupplierComparator:
         self.benchmark_threshold_percent = benchmark_threshold_percent
         self.outlier_method = outlier_method
         self.outlier_tolerance = outlier_tolerance
+
+    # ==================================================
+    # Benchmark Coverage
+    # ==================================================
+
+    def compute_benchmark_coverage(self, supplier_records, benchmark_records):
+        """
+        For every supplier, how many of their submitted fields could
+        actually be checked against the benchmark workbook - i.e. the
+        benchmark has a numeric value at the same (sheet, row, field)
+        identity - regardless of whether the value differed enough to
+        be flagged. Lets the user confirm benchmark attachment is
+        complete before trusting the comparison findings.
+
+        supplier_records: dict[supplier_name, list[DataRecord]]
+        benchmark_records: list[DataRecord] or None
+
+        Returns dict[supplier_name, BenchmarkCoverage].
+        """
+
+        benchmark_lookup = self._index_by_key(benchmark_records or [])
+
+        coverage_by_supplier = {}
+
+        for supplier_name, records in supplier_records.items():
+
+            coverage = BenchmarkCoverage()
+            unmatched_by_sheet = {}
+            unmatched_by_field = {}
+
+            for record in records:
+                for field_name, raw_value in record.values.items():
+
+                    if self._is_blank(raw_value):
+                        continue
+
+                    coverage.total_fields += 1
+
+                    key = self._key(record, field_name)
+                    benchmark_value = benchmark_lookup.get(key)
+                    benchmark_number = self._to_float_or_none(
+                        benchmark_value
+                    )
+
+                    if benchmark_number is not None:
+                        coverage.matched_fields += 1
+                        continue
+
+                    unmatched_by_sheet[record.sheet_name] = (
+                        unmatched_by_sheet.get(record.sheet_name, 0) + 1
+                    )
+
+                    unmatched_by_field[field_name] = (
+                        unmatched_by_field.get(field_name, 0) + 1
+                    )
+
+            coverage.unmatched_by_sheet = unmatched_by_sheet
+            coverage.unmatched_by_field = dict(
+                sorted(
+                    unmatched_by_field.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )[:MAX_REPORTED_UNMATCHED_FIELDS]
+            )
+
+            coverage_by_supplier[supplier_name] = coverage
+
+        return coverage_by_supplier
+
+    def _is_blank(self, value):
+        if value is None:
+            return True
+
+        if isinstance(value, str):
+            return value.strip() == ""
+
+        return False
 
     # ==================================================
     # Rule-Driven Comparison

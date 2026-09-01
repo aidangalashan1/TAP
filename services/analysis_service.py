@@ -22,6 +22,7 @@ class AnalysisResult:
     records: list
     findings: list
     report_path: str
+    benchmark_coverage: object = None
 
 
 class AnalysisService:
@@ -91,14 +92,32 @@ class AnalysisService:
             for supplier_name, workbook in supplier_workbooks
         }
 
+        benchmark_records = None
+
+        if benchmark_workbook is not None:
+            benchmark_records = self.schema_service.build_records(
+                benchmark_workbook,
+                workbook_schema,
+            )
+
         comparison_findings_by_supplier = (
             self._run_cross_supplier_comparison(
                 supplier_records=supplier_records,
-                benchmark_workbook=benchmark_workbook,
-                workbook_schema=workbook_schema,
+                benchmark_records=benchmark_records,
                 custom_rules=custom_rules,
+                has_benchmark=benchmark_workbook is not None,
             )
         )
+
+        coverage_by_supplier = {}
+
+        if benchmark_records is not None:
+            coverage_by_supplier = (
+                self.cross_supplier_comparator.compute_benchmark_coverage(
+                    supplier_records=supplier_records,
+                    benchmark_records=benchmark_records,
+                )
+            )
 
         results = []
 
@@ -130,6 +149,7 @@ class AnalysisService:
             supplier_result = SupplierAnalysisResult(
                 supplier_name=supplier_name,
                 findings=findings,
+                benchmark_coverage=coverage_by_supplier.get(supplier_name),
             )
 
             report_path = ""
@@ -148,6 +168,9 @@ class AnalysisService:
                     records=records,
                     findings=findings,
                     report_path=report_path,
+                    benchmark_coverage=coverage_by_supplier.get(
+                        supplier_name
+                    ),
                 )
             )
 
@@ -199,18 +222,10 @@ class AnalysisService:
     def _run_cross_supplier_comparison(
         self,
         supplier_records,
-        benchmark_workbook,
-        workbook_schema,
+        benchmark_records,
+        has_benchmark,
         custom_rules=None,
     ):
-        benchmark_records = None
-
-        if benchmark_workbook is not None:
-            benchmark_records = self.schema_service.build_records(
-                benchmark_workbook,
-                workbook_schema,
-            )
-
         comparison_rules = [
             rule
             for rule in (custom_rules or [])
@@ -223,7 +238,7 @@ class AnalysisService:
                 supplier_records=supplier_records,
                 benchmark_records=benchmark_records,
                 comparison_rules=comparison_rules,
-                use_benchmark_default=benchmark_workbook is not None,
+                use_benchmark_default=has_benchmark,
             )
         )
 
