@@ -55,13 +55,17 @@ SUPPORTED_EXCEL_EXTENSIONS = {
 # Mandatory Cell Detection
 # --------------------------------------------------
 
-# Common yellow fill colours used in Excel templates
-# to indicate supplier input cells.
+# Common yellow fill colours used in Excel templates to indicate
+# supplier input cells - matched as a substring of a cell's fill
+# colour by InputAreaDetector, since Excel fill colours often carry
+# an alpha-channel prefix (e.g. "FFFFFF00").
 
 YELLOW_FILL_CODES = {
     "FFFF00",
-    "FFFFFF00",
-    "00FFFF00",
+    "FFFF99",
+    "FFFFCC",
+    "FFF2CC",
+    "FFEB9C",
 }
 
 

@@ -134,3 +134,55 @@ def test_write_report_creates_output_directory_if_missing(tmp_path):
     ReportWriter().write_report(result, str(nested_path))
 
     assert nested_path.exists()
+
+
+def test_write_report_neutralises_excel_formula_injection(tmp_path):
+    """
+    A supplier's submitted cell value (or a maliciously-named
+    supplier file) starting with a formula-trigger character must
+    never become a live formula in the generated report - openpyxl
+    (and Excel itself) treats a leading '=', '+', '-', or '@' as the
+    start of a formula unless it's escaped.
+    """
+
+    findings = [
+        Finding(
+            severity=Severity.HIGH,
+            worksheet_name="=HYPERLINK(\"http://evil.example\")",
+            cell_reference="B2",
+            actual_value='=cmd|"/c calc"!A1',
+            reason="test",
+            category=FindingCategory.TENDER_RESPONSE_CHECK.value,
+            comparator_value="+2+5",
+        ),
+    ]
+
+    result = SupplierAnalysisResult(
+        supplier_name="=SUM(1,1)", findings=findings
+    )
+
+    output_path = tmp_path / "report.xlsx"
+    ReportWriter().write_report(result, str(output_path))
+
+    workbook = openpyxl.load_workbook(output_path)
+    findings_sheet = workbook["Findings"]
+
+    worksheet_name_cell = findings_sheet["D2"]
+    actual_value_cell = findings_sheet["G2"]
+    comparator_value_cell = findings_sheet["I2"]
+    supplier_name_cell = workbook["Summary"]["B1"]
+
+    for cell in (
+        worksheet_name_cell,
+        actual_value_cell,
+        comparator_value_cell,
+        supplier_name_cell,
+    ):
+        # data_type 's' = plain text, 'f' = a live formula. Every one
+        # of these traces back to attacker-controllable input, so
+        # none of them may come back as a formula.
+        assert cell.data_type == "s"
+
+    # The apostrophe-escaped text is still recognisably the original
+    # value for anyone reading the report, just inert.
+    assert actual_value_cell.value == '\'=cmd|"/c calc"!A1'

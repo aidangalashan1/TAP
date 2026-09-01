@@ -1,4 +1,2 @@
-openpyxl
-pandas
-numpy
-tksheet
+openpyxl==3.1.5
+tksheet==7.6.0

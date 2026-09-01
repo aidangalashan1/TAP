@@ -1,3 +1,13 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Runtime application state, not source code - custom rules,
+# mapping profiles, threshold settings, session file paths, and
+# generated reports can all contain or reference commercially
+# sensitive tender data and must never land in version control.
+custom_rules.json
+mapping_profiles/
+threshold_settings.json
+session.json
+reports/

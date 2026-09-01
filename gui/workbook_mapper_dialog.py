@@ -628,7 +628,14 @@ class WorkbookMapperDialog:
             ] = display_value
 
         self.sheet_control.set_sheet_data(
-            data
+            data,
+            # Without this, highlights applied to the previously
+            # displayed sheet (input-area status colours, formatting,
+            # the benchmark overlay) are never cleared - switching to
+            # a smaller sheet then leaves stale highlights pointing
+            # at rows/columns that no longer exist, which tksheet can
+            # crash on during a later redraw/scroll.
+            reset_highlights=True,
         )
 
         if self.show_formatting_var.get():

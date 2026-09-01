@@ -67,6 +67,7 @@ def _install_tkinter_stub():
     messagebox_module.askyesno = lambda *a, **k: True
 
     simpledialog_module = types.ModuleType("tkinter.simpledialog")
+    simpledialog_module.askstring = lambda *a, **k: None
 
     ttk_module = types.ModuleType("tkinter.ttk")
 

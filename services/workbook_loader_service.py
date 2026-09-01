@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import config
 from parsers.workbook_parser import WorkbookParser
 
 
@@ -16,11 +17,12 @@ class WorkbookLoaderService:
     #
     # This keeps workbook loading out of MainWindow and AnalysisService.
 
-    SUPPORTED_EXTENSIONS = {
-        ".xlsx",
-        ".xls",
-        ".xlsm",
-    }
+    # config.SUPPORTED_EXCEL_EXTENSIONS is the single source of truth
+    # for which file types the app accepts - this used to be a
+    # second, independently-maintained copy here, which could (and
+    # did) silently drift from the one file pickers/folder discovery
+    # actually use.
+    SUPPORTED_EXTENSIONS = config.SUPPORTED_EXCEL_EXTENSIONS
 
     def __init__(self, workbook_parser=None):
         if workbook_parser is None:

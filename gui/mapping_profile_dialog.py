@@ -325,6 +325,19 @@ class MappingProfileDialog:
         if not profile_name:
             return
 
+        if profile_name in self.mapping_profile_service.list_profiles():
+
+            overwrite = messagebox.askyesno(
+                "Profile Already Exists",
+                (
+                    f"A profile named '{profile_name}' already "
+                    "exists. Overwrite it?"
+                ),
+            )
+
+            if not overwrite:
+                return
+
         self.mapping_profile_service.save_profile(
             profile_name,
             self.workbook_schema,

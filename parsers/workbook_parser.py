@@ -135,15 +135,39 @@ class WorkbookParser:
             ),
         )
 
+        # A formula cell's raw value (data_only=False) is the formula
+        # text itself, e.g. "=B2*1.1", not its result - every numeric
+        # comparison downstream would then silently fail to parse it
+        # as a number and skip the cell entirely, without ever
+        # flagging it as blank, unreadable, or worth a clarification.
+        # A second, data_only=True load exposes Excel's last-cached
+        # calculated result instead (None only if the file was never
+        # opened/saved in Excel, in which case the formula text is
+        # kept as a fallback - same behaviour as before this fix).
+        computed_values_workbook = load_workbook(
+            filename=file_path,
+            data_only=True,
+            read_only=False,
+            keep_vba=False,
+        )
+
         workbook_info = WorkbookInfo(
             file_name=path.name,
             file_path=str(path),
         )
 
         for worksheet in workbook.worksheets:
+
+            computed_values_worksheet = (
+                computed_values_workbook[worksheet.title]
+                if worksheet.title in computed_values_workbook.sheetnames
+                else None
+            )
+
             worksheet_info = (
                 self._parse_worksheet(
-                    worksheet
+                    worksheet,
+                    computed_values_worksheet,
                 )
             )
 
@@ -152,12 +176,14 @@ class WorkbookParser:
             )
 
         workbook.close()
+        computed_values_workbook.close()
 
         return workbook_info
 
     def _parse_worksheet(
         self,
         worksheet,
+        computed_values_worksheet=None,
     ) -> WorksheetInfo:
 
         worksheet_info = WorksheetInfo(
@@ -220,12 +246,26 @@ class WorkbookParser:
                     )
                 )
 
+                cell_value = cell.value
+
+                if formula and computed_values_worksheet is not None:
+
+                    computed_cell = (
+                        computed_values_worksheet.cell(
+                            row=cell.row,
+                            column=cell.column,
+                        )
+                    )
+
+                    if computed_cell.value is not None:
+                        cell_value = computed_cell.value
+
                 cell_info = CellInfo(
                     sheet_name=worksheet.title,
                     cell_reference=cell.coordinate,
                     row_number=cell.row,
                     column_number=cell.column,
-                    value=cell.value,
+                    value=cell_value,
 
                     fill_colour=self._get_fill_colour(
                         cell

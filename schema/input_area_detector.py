@@ -2,6 +2,7 @@
 
 from collections import deque
 
+import config
 from schema.workbook_schema import (
     InputArea,
     RangeSchema,
@@ -391,17 +392,9 @@ class InputAreaDetector:
             fill_colour
         ).upper()
 
-        yellow_markers = [
-            "FFFF00",
-            "FFFF99",
-            "FFFFCC",
-            "FFF2CC",
-            "FFEB9C",
-        ]
-
         return any(
             marker in colour
-            for marker in yellow_markers
+            for marker in config.YELLOW_FILL_CODES
         )
 
     def _is_populated(
