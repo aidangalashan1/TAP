@@ -13,7 +13,6 @@ from rules.custom_rule_models import (
     CustomRuleRightValueType,
     CustomRuleSeverity,
     CustomRuleType,
-    OutlierMethod,
 )
 
 
@@ -103,10 +102,12 @@ class CustomRuleStore:
                 ),
                 check_duplicates=bool(data.get("check_duplicates", False)),
                 check_outliers=bool(data.get("check_outliers", False)),
-                outlier_method=self._parse_outlier_method(
-                    data.get("outlier_method", "IQR")
+                outlier_tolerance_percent=float(
+                    data.get(
+                        "outlier_tolerance_percent",
+                        data.get("outlier_tolerance", 25.0),
+                    )
                 ),
-                outlier_tolerance=float(data.get("outlier_tolerance", 1.5)),
                 target_fields=data.get("target_fields", []),
                 comparison_basis=self._parse_comparison_basis(
                     data.get("comparison_basis")
@@ -137,8 +138,7 @@ class CustomRuleStore:
             "check_negative_values": rule.check_negative_values,
             "check_duplicates": rule.check_duplicates,
             "check_outliers": rule.check_outliers,
-            "outlier_method": self._enum_value(rule.outlier_method),
-            "outlier_tolerance": rule.outlier_tolerance,
+            "outlier_tolerance_percent": rule.outlier_tolerance_percent,
             "target_fields": rule.target_fields,
             "comparison_basis": (
                 self._enum_value(rule.comparison_basis)
@@ -196,12 +196,6 @@ class CustomRuleStore:
             return CustomRuleType(str(value))
         except ValueError:
             return CustomRuleType.ADVANCED_RULE
-
-    def _parse_outlier_method(self, value):
-        try:
-            return OutlierMethod(str(value))
-        except ValueError:
-            return OutlierMethod.IQR
 
     def _parse_comparison_basis(self, value):
         if value is None:

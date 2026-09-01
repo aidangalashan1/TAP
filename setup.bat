@@ -72,7 +72,7 @@ if exist "requirements.txt" (
     echo.
     echo No requirements.txt found.
     echo Installing minimum required packages...
-    "%VENV_PYTHON%" -m pip install openpyxl tksheet
+    "%VENV_PYTHON%" -m pip install openpyxl tksheet sv-ttk
     if %ERRORLEVEL% NEQ 0 (
         echo ERROR: Failed to install minimum required packages.
         echo.

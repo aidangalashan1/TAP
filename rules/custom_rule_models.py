@@ -47,11 +47,6 @@ class CustomRuleType(str, Enum):
     COMPARISON_RULE = "COMPARISON_RULE"
 
 
-class OutlierMethod(str, Enum):
-    IQR = "IQR"
-    Z_SCORE = "Z_SCORE"
-
-
 class ComparisonBasis(str, Enum):
     # Compare each supplier's value against a single known reference
     # value from the benchmark workbook.
@@ -93,8 +88,12 @@ class CustomRule:
     check_duplicates: bool = False
     check_outliers: bool = False
 
-    outlier_method: OutlierMethod = OutlierMethod.IQR
-    outlier_tolerance: float = 1.5
+    # How far a value may sit from the relevant average before it's
+    # an outlier, as a raw percentage either side (e.g. 25 = flag
+    # anything more than 25% above or below the average) - the same
+    # "raw % diff" basis benchmark comparison already uses, just
+    # against a computed average instead of an external reference.
+    outlier_tolerance_percent: float = 25.0
 
     # If empty, applies to all fields detected in records.
     target_fields: list[str] = field(default_factory=list)
@@ -105,8 +104,8 @@ class CustomRule:
     # default threshold/tolerance for just that scope.
     # - BENCHMARK rules use comparison_threshold_percent (falls back
     #   to the global benchmark threshold when None).
-    # - BETWEEN_RESPONSES rules reuse outlier_method/outlier_tolerance
-    #   above (falls back to the global outlier defaults when the
-    #   tolerance is left at the default).
+    # - BETWEEN_RESPONSES rules reuse outlier_tolerance_percent above
+    #   (falls back to the global outlier default when left at the
+    #   default value).
     comparison_basis: ComparisonBasis | None = None
     comparison_threshold_percent: float | None = None

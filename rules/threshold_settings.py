@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import config
-from rules.custom_rule_models import OutlierMethod
 
 
 @dataclass
@@ -20,21 +19,20 @@ class ThresholdSettings:
       is always against a single known reference value per field, so
       raw % diff is the only basis that applies to it.
 
-    - default_outlier_method / default_outlier_tolerance: the basis
-      used to flag one supplier's value as an outlier relative to the
-      other suppliers' responses to the same field (no benchmark
-      involved) - Z_SCORE compares against the group mean/standard
-      deviation, IQR compares against the group median/quartile range.
+    - default_outlier_tolerance_percent: raw % difference from the
+      group average at which one supplier's value is flagged as an
+      outlier relative to the other suppliers' responses to the same
+      field (no benchmark involved) - the same basis as the benchmark
+      threshold above, just against a computed average instead of an
+      external reference value.
     """
 
     benchmark_threshold_percent: float = (
         config.DEFAULT_BENCHMARK_THRESHOLD_PERCENT
     )
 
-    default_outlier_method: OutlierMethod = OutlierMethod.Z_SCORE
-
-    default_outlier_tolerance: float = (
-        config.DEFAULT_STANDARD_DEVIATION_THRESHOLD
+    default_outlier_tolerance_percent: float = (
+        config.DEFAULT_OUTLIER_THRESHOLD_PERCENT
     )
 
 
@@ -63,13 +61,10 @@ class ThresholdSettingsStore:
                         config.DEFAULT_BENCHMARK_THRESHOLD_PERCENT,
                     )
                 ),
-                default_outlier_method=self._parse_outlier_method(
-                    data.get("default_outlier_method", "Z_SCORE")
-                ),
-                default_outlier_tolerance=float(
+                default_outlier_tolerance_percent=float(
                     data.get(
-                        "default_outlier_tolerance",
-                        config.DEFAULT_STANDARD_DEVIATION_THRESHOLD,
+                        "default_outlier_tolerance_percent",
+                        config.DEFAULT_OUTLIER_THRESHOLD_PERCENT,
                     )
                 ),
             )
@@ -78,7 +73,6 @@ class ThresholdSettingsStore:
 
     def save(self, settings):
         data = asdict(settings)
-        data["default_outlier_method"] = settings.default_outlier_method.value
 
         parent = self.file_path.parent
 
@@ -87,9 +81,3 @@ class ThresholdSettingsStore:
 
         with open(self.file_path, "w", encoding="utf-8") as file:
             json.dump(data, file, indent=4)
-
-    def _parse_outlier_method(self, value):
-        try:
-            return OutlierMethod(str(value))
-        except ValueError:
-            return OutlierMethod.Z_SCORE

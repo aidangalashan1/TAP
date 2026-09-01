@@ -99,7 +99,7 @@ class MappingProfileDialog:
         title = ttk.Label(
             main_frame,
             text="Mapping Profiles",
-            font=("Segoe UI", 14, "bold"),
+            font=("TkDefaultFont", 16, "bold"),
         )
 
         title.pack(

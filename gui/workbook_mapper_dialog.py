@@ -175,20 +175,6 @@ class WorkbookMapperDialog:
             pady=(0, 5),
         )
 
-        ttk.Label(
-            frame,
-            text=(
-                "Drag to select cells in the grid, choose a zone type "
-                "below, then click Apply. Yellow = detected but not "
-                "reviewed, green = confirmed input, red = removed, "
-                "black = ignored / not an input cell. Tick 'Show "
-                "Benchmark Rates' to overlay the matching benchmark "
-                "value under each cell (requires a benchmark workbook "
-                "loaded in Step 2)."
-            ),
-            wraplength=1000,
-        ).pack(anchor="w", padx=5, pady=(0, 5))
-
         tool_row = ttk.Frame(frame)
         tool_row.pack(fill=tk.X)
 
