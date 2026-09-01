@@ -29,6 +29,25 @@ class RuleWizardDialog:
         "is not less than": CustomRuleOperator.GREATER_THAN_OR_EQUAL,
         "contains": CustomRuleOperator.CONTAINS,
         "does not contain": CustomRuleOperator.NOT_CONTAINS,
+        "is blank": CustomRuleOperator.IS_BLANK,
+        "is not blank": CustomRuleOperator.IS_NOT_BLANK,
+    }
+
+    # Operators that don't compare against a right-hand side at all -
+    # the row's right-side widgets are hidden for these.
+    NO_RIGHT_SIDE_OPERATORS = {
+        "is blank",
+        "is not blank",
+    }
+
+    RIGHT_TYPE_OPTIONS = {
+        "a fixed value": CustomRuleRightValueType.VALUE,
+        "another field": CustomRuleRightValueType.FIELD,
+    }
+
+    MATCH_MODE_OPTIONS = {
+        "Match ALL conditions (AND)": CustomRuleMatchMode.ALL,
+        "Match ANY condition (OR)": CustomRuleMatchMode.ANY,
     }
 
     SEVERITY_OPTIONS = {
@@ -37,13 +56,6 @@ class RuleWizardDialog:
         "Low": CustomRuleSeverity.LOW,
         "Info": CustomRuleSeverity.INFO,
     }
-
-    ADVANCED_RULE_TYPES = [
-        "Compare Two Fields",
-        "Compare Field To Fixed Value",
-        "Check For Blank Values",
-        "Range Check",
-    ]
 
     OUTLIER_METHODS = {
         "IQR": OutlierMethod.IQR,
@@ -112,13 +124,15 @@ class RuleWizardDialog:
             )
         )
 
-        self.advanced_type_var = tk.StringVar(value=self.ADVANCED_RULE_TYPES[0])
-        self.left_field_var = tk.StringVar()
-        self.operator_var = tk.StringVar(value="is greater than")
-        self.right_field_var = tk.StringVar()
-        self.fixed_value_var = tk.StringVar()
-        self.minimum_value_var = tk.StringVar()
-        self.maximum_value_var = tk.StringVar()
+        self.advanced_match_mode_var = tk.StringVar(
+            value=list(self.MATCH_MODE_OPTIONS.keys())[0]
+        )
+
+        # Each entry: {"left_field", "operator", "right_type",
+        # "right_field", "right_value"} tk.StringVars for one
+        # condition row in the free-form Advanced Rule builder.
+        self.advanced_conditions = []
+        self.advanced_conditions_container = None
 
         self.comparison_basis_var = tk.StringVar(
             value=list(self.COMPARISON_BASIS_OPTIONS.keys())[0]
@@ -205,48 +219,50 @@ class RuleWizardDialog:
         self._pending_target_fields = list(rule.target_fields)
 
     def _load_existing_advanced_rule(self, rule):
-        conditions = rule.conditions
-
-        if not conditions:
-            return
-
-        first = conditions[0]
-
-        operator_value = (
-            first.operator.value
-            if hasattr(first.operator, "value")
-            else str(first.operator)
-        )
-
-        right_type_value = (
-            first.right_value_type.value
-            if hasattr(first.right_value_type, "value")
-            else str(first.right_value_type)
-        )
-
-        self.left_field_var.set(first.left_field)
-
-        if len(conditions) == 2:
-            self.advanced_type_var.set("Range Check")
-            self.minimum_value_var.set(str(conditions[0].right_value))
-            self.maximum_value_var.set(str(conditions[1].right_value))
-            return
-
-        if operator_value == CustomRuleOperator.IS_BLANK.value:
-            self.advanced_type_var.set("Check For Blank Values")
-            return
-
-        for label, value in self.OPERATOR_OPTIONS.items():
-            if value.value == operator_value:
-                self.operator_var.set(label)
+        for label, value in self.MATCH_MODE_OPTIONS.items():
+            if value == rule.match_mode:
+                self.advanced_match_mode_var.set(label)
                 break
 
-        if right_type_value == CustomRuleRightValueType.FIELD.value:
-            self.advanced_type_var.set("Compare Two Fields")
-            self.right_field_var.set(str(first.right_value))
-        else:
-            self.advanced_type_var.set("Compare Field To Fixed Value")
-            self.fixed_value_var.set(str(first.right_value))
+        self.advanced_conditions = [
+            self._condition_to_row_vars(condition)
+            for condition in rule.conditions
+        ]
+
+    def _condition_to_row_vars(self, condition):
+        operator_label = "equals"
+
+        for label, value in self.OPERATOR_OPTIONS.items():
+            if value == condition.operator:
+                operator_label = label
+                break
+
+        right_type_label = "a fixed value"
+
+        for label, value in self.RIGHT_TYPE_OPTIONS.items():
+            if value == condition.right_value_type:
+                right_type_label = label
+                break
+
+        right_field_value = ""
+        right_value_value = ""
+
+        if condition.right_value_type == CustomRuleRightValueType.FIELD:
+            right_field_value = str(condition.right_value or "")
+        elif condition.right_value_type == CustomRuleRightValueType.VALUE:
+            right_value_value = str(
+                condition.right_value
+                if condition.right_value is not None
+                else ""
+            )
+
+        return {
+            "left_field": tk.StringVar(value=condition.left_field),
+            "operator": tk.StringVar(value=operator_label),
+            "right_type": tk.StringVar(value=right_type_label),
+            "right_field": tk.StringVar(value=right_field_value),
+            "right_value": tk.StringVar(value=right_value_value),
+        }
 
     def show(self):
         self.parent.wait_window(self.window)
@@ -617,111 +633,132 @@ class RuleWizardDialog:
     # ==================================================
 
     def _build_advanced_rules_body(self):
-        type_frame = ttk.Frame(self.body_frame)
-        type_frame.pack(fill=tk.X, pady=(0, 10))
-
-        ttk.Label(type_frame, text="Advanced rule type").pack(side=tk.LEFT)
-
-        advanced_combo = ttk.Combobox(
-            type_frame,
-            textvariable=self.advanced_type_var,
-            values=self.ADVANCED_RULE_TYPES,
-            state="readonly",
-            width=35,
-        )
-        advanced_combo.pack(side=tk.LEFT, padx=(10, 0))
-        advanced_combo.bind("<<ComboboxSelected>>", self._refresh_advanced_body)
-
-        self.advanced_body_frame = ttk.Frame(self.body_frame)
-        self.advanced_body_frame.pack(fill=tk.BOTH, expand=True)
-
-        self._refresh_advanced_body()
-
-    def _refresh_advanced_body(self, event=None):
-        for widget in self.advanced_body_frame.winfo_children():
-            widget.destroy()
-
-        rule_type = self.advanced_type_var.get()
-
-        if rule_type == "Compare Two Fields":
-            self._build_compare_two_fields_body()
-        elif rule_type == "Compare Field To Fixed Value":
-            self._build_compare_fixed_value_body()
-        elif rule_type == "Check For Blank Values":
-            self._build_blank_check_body()
-        elif rule_type == "Range Check":
-            self._build_range_check_body()
-
-    def _build_compare_two_fields_body(self):
-        self._field_combo(self.advanced_body_frame, 0, 0, self.left_field_var)
-        self._operator_combo(self.advanced_body_frame, 0, 1)
-        self._field_combo(self.advanced_body_frame, 0, 2, self.right_field_var)
-
-    def _build_compare_fixed_value_body(self):
-        self._field_combo(self.advanced_body_frame, 0, 0, self.left_field_var)
-        self._operator_combo(self.advanced_body_frame, 0, 1)
-
-        ttk.Entry(
-            self.advanced_body_frame,
-            textvariable=self.fixed_value_var,
-            width=20,
-        ).grid(row=0, column=2, sticky="w", padx=5, pady=5)
-
-    def _build_blank_check_body(self):
         ttk.Label(
-            self.advanced_body_frame,
-            text="Flag when this field is blank:",
-        ).grid(row=0, column=0, sticky="w", padx=5, pady=5)
+            self.body_frame,
+            text=(
+                "Build one or more conditions on the confirmed fields. "
+                "A finding is raised on a record when the conditions "
+                "match, combined by AND/OR below."
+            ),
+            wraplength=780,
+        ).pack(anchor="w", pady=(0, 10))
 
-        self._field_combo(self.advanced_body_frame, 0, 1, self.left_field_var)
+        match_row = ttk.Frame(self.body_frame)
+        match_row.pack(anchor="w", pady=(0, 10))
 
-    def _build_range_check_body(self):
-        ttk.Label(
-            self.advanced_body_frame,
-            text="Field",
-        ).grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Label(match_row, text="Combine conditions:").pack(side=tk.LEFT)
 
-        self._field_combo(self.advanced_body_frame, 0, 1, self.left_field_var)
-
-        ttk.Label(
-            self.advanced_body_frame,
-            text="Minimum",
-        ).grid(row=1, column=0, sticky="w", padx=5, pady=5)
-
-        ttk.Entry(
-            self.advanced_body_frame,
-            textvariable=self.minimum_value_var,
-            width=20,
-        ).grid(row=1, column=1, sticky="w", padx=5, pady=5)
-
-        ttk.Label(
-            self.advanced_body_frame,
-            text="Maximum",
-        ).grid(row=2, column=0, sticky="w", padx=5, pady=5)
-
-        ttk.Entry(
-            self.advanced_body_frame,
-            textvariable=self.maximum_value_var,
-            width=20,
-        ).grid(row=2, column=1, sticky="w", padx=5, pady=5)
-
-    def _field_combo(self, parent, row, column, variable):
         ttk.Combobox(
-            parent,
-            textvariable=variable,
-            values=self.fields,
-            state="readonly",
-            width=32,
-        ).grid(row=row, column=column, sticky="w", padx=5, pady=5)
-
-    def _operator_combo(self, parent, row, column):
-        ttk.Combobox(
-            parent,
-            textvariable=self.operator_var,
-            values=list(self.OPERATOR_OPTIONS.keys()),
+            match_row,
+            textvariable=self.advanced_match_mode_var,
+            values=list(self.MATCH_MODE_OPTIONS.keys()),
             state="readonly",
             width=28,
-        ).grid(row=row, column=column, sticky="w", padx=5, pady=5)
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        self.advanced_conditions_container = ttk.Frame(self.body_frame)
+        self.advanced_conditions_container.pack(fill=tk.X)
+
+        ttk.Button(
+            self.body_frame,
+            text="+ Add Condition",
+            command=self._add_advanced_condition,
+        ).pack(anchor="w", pady=(8, 0))
+
+        if not self.advanced_conditions:
+            self._add_advanced_condition()
+        else:
+            self._render_advanced_conditions()
+
+    def _add_advanced_condition(self):
+        self.advanced_conditions.append(
+            {
+                "left_field": tk.StringVar(),
+                "operator": tk.StringVar(value="equals"),
+                "right_type": tk.StringVar(
+                    value=list(self.RIGHT_TYPE_OPTIONS.keys())[0]
+                ),
+                "right_field": tk.StringVar(),
+                "right_value": tk.StringVar(),
+            }
+        )
+
+        self._render_advanced_conditions()
+
+    def _remove_advanced_condition(self, index):
+        del self.advanced_conditions[index]
+        self._render_advanced_conditions()
+
+    def _render_advanced_conditions(self):
+        for widget in self.advanced_conditions_container.winfo_children():
+            widget.destroy()
+
+        for index, condition_vars in enumerate(self.advanced_conditions):
+            self._render_advanced_condition_row(index, condition_vars)
+
+    def _render_advanced_condition_row(self, index, condition_vars):
+        row = ttk.Frame(self.advanced_conditions_container)
+        row.pack(fill=tk.X, pady=3)
+
+        ttk.Combobox(
+            row,
+            textvariable=condition_vars["left_field"],
+            values=self.fields,
+            state="readonly",
+            width=28,
+        ).pack(side=tk.LEFT, padx=(0, 5))
+
+        operator_combo = ttk.Combobox(
+            row,
+            textvariable=condition_vars["operator"],
+            values=list(self.OPERATOR_OPTIONS.keys()),
+            state="readonly",
+            width=20,
+        )
+        operator_combo.pack(side=tk.LEFT, padx=5)
+        operator_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda event: self._render_advanced_conditions(),
+        )
+
+        if condition_vars["operator"].get() not in self.NO_RIGHT_SIDE_OPERATORS:
+
+            right_type_combo = ttk.Combobox(
+                row,
+                textvariable=condition_vars["right_type"],
+                values=list(self.RIGHT_TYPE_OPTIONS.keys()),
+                state="readonly",
+                width=14,
+            )
+            right_type_combo.pack(side=tk.LEFT, padx=5)
+            right_type_combo.bind(
+                "<<ComboboxSelected>>",
+                lambda event: self._render_advanced_conditions(),
+            )
+
+            if (
+                self.RIGHT_TYPE_OPTIONS.get(condition_vars["right_type"].get())
+                == CustomRuleRightValueType.FIELD
+            ):
+                ttk.Combobox(
+                    row,
+                    textvariable=condition_vars["right_field"],
+                    values=self.fields,
+                    state="readonly",
+                    width=28,
+                ).pack(side=tk.LEFT, padx=5)
+            else:
+                ttk.Entry(
+                    row,
+                    textvariable=condition_vars["right_value"],
+                    width=20,
+                ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            row,
+            text="Remove",
+            command=lambda i=index: self._remove_advanced_condition(i),
+        ).pack(side=tk.LEFT, padx=(10, 0))
 
     # ==================================================
     # Rule creation
@@ -851,139 +888,98 @@ class RuleWizardDialog:
         )
 
     def _create_advanced_rule(self):
-        rule_type = self.advanced_type_var.get()
+        if not self.advanced_conditions:
+            messagebox.showwarning(
+                "No Conditions",
+                "Add at least one condition.",
+            )
+            return None
+
+        conditions = []
+
+        for condition_vars in self.advanced_conditions:
+
+            left_field = condition_vars["left_field"].get().strip()
+            operator = self.OPERATOR_OPTIONS.get(
+                condition_vars["operator"].get()
+            )
+
+            if left_field == "" or operator is None:
+                messagebox.showwarning(
+                    "Missing Condition Detail",
+                    "Every condition needs a field and an operator.",
+                )
+                return None
+
+            if operator in (
+                CustomRuleOperator.IS_BLANK,
+                CustomRuleOperator.IS_NOT_BLANK,
+            ):
+                conditions.append(
+                    CustomRuleCondition(
+                        left_field=left_field,
+                        operator=operator,
+                        right_value_type=CustomRuleRightValueType.BLANK,
+                        right_value=None,
+                    )
+                )
+                continue
+
+            right_type = self.RIGHT_TYPE_OPTIONS.get(
+                condition_vars["right_type"].get()
+            )
+
+            if right_type == CustomRuleRightValueType.FIELD:
+
+                right_field = condition_vars["right_field"].get().strip()
+
+                if right_field == "":
+                    messagebox.showwarning(
+                        "Missing Condition Detail",
+                        "Select the field to compare against.",
+                    )
+                    return None
+
+                conditions.append(
+                    CustomRuleCondition(
+                        left_field=left_field,
+                        operator=operator,
+                        right_value_type=CustomRuleRightValueType.FIELD,
+                        right_value=right_field,
+                    )
+                )
+                continue
+
+            value = self._parse_value(
+                condition_vars["right_value"].get()
+            )
+
+            if value is None:
+                messagebox.showwarning(
+                    "Invalid Value",
+                    "Enter a valid comparison value.",
+                )
+                return None
+
+            conditions.append(
+                CustomRuleCondition(
+                    left_field=left_field,
+                    operator=operator,
+                    right_value_type=CustomRuleRightValueType.VALUE,
+                    right_value=value,
+                )
+            )
+
         rule_name = self.rule_name_var.get().strip()
 
         if rule_name == "":
-            rule_name = self._default_advanced_name(rule_type)
+            rule_name = f"{conditions[0].left_field} Condition"
 
-        if rule_type == "Compare Two Fields":
-            return self._create_compare_two_fields_rule(rule_name)
-
-        if rule_type == "Compare Field To Fixed Value":
-            return self._create_compare_fixed_value_rule(rule_name)
-
-        if rule_type == "Check For Blank Values":
-            return self._create_blank_check_rule(rule_name)
-
-        if rule_type == "Range Check":
-            return self._create_range_check_rule(rule_name)
-
-        return None
-
-    def _create_compare_two_fields_rule(self, rule_name):
-        left_field = self.left_field_var.get().strip()
-        right_field = self.right_field_var.get().strip()
-        operator = self.OPERATOR_OPTIONS.get(self.operator_var.get())
-
-        if left_field == "" or right_field == "" or operator is None:
-            messagebox.showwarning(
-                "Missing rule detail",
-                "Please complete all advanced rule fields.",
-            )
-            return None
-
-        condition = CustomRuleCondition(
-            left_field=left_field,
-            operator=operator,
-            right_value_type=CustomRuleRightValueType.FIELD,
-            right_value=right_field,
+        match_mode = self.MATCH_MODE_OPTIONS.get(
+            self.advanced_match_mode_var.get(),
+            CustomRuleMatchMode.ALL,
         )
 
-        return self._build_advanced_rule(rule_name, [condition])
-
-    def _create_compare_fixed_value_rule(self, rule_name):
-        left_field = self.left_field_var.get().strip()
-        operator = self.OPERATOR_OPTIONS.get(self.operator_var.get())
-        value = self._parse_value(self.fixed_value_var.get())
-
-        if left_field == "" or operator is None:
-            messagebox.showwarning(
-                "Missing rule detail",
-                "Please complete all advanced rule fields.",
-            )
-            return None
-
-        if value is None:
-            messagebox.showwarning(
-                "Invalid value",
-                "Please enter a valid fixed value.",
-            )
-            return None
-
-        condition = CustomRuleCondition(
-            left_field=left_field,
-            operator=operator,
-            right_value_type=CustomRuleRightValueType.VALUE,
-            right_value=value,
-        )
-
-        return self._build_advanced_rule(rule_name, [condition])
-
-    def _create_blank_check_rule(self, rule_name):
-        left_field = self.left_field_var.get().strip()
-
-        if left_field == "":
-            messagebox.showwarning(
-                "Missing field",
-                "Please select a field.",
-            )
-            return None
-
-        condition = CustomRuleCondition(
-            left_field=left_field,
-            operator=CustomRuleOperator.IS_BLANK,
-            right_value_type=CustomRuleRightValueType.BLANK,
-            right_value=None,
-        )
-
-        return self._build_advanced_rule(rule_name, [condition])
-
-    def _create_range_check_rule(self, rule_name):
-        left_field = self.left_field_var.get().strip()
-        minimum_value = self._parse_value(self.minimum_value_var.get())
-        maximum_value = self._parse_value(self.maximum_value_var.get())
-
-        if left_field == "":
-            messagebox.showwarning(
-                "Missing field",
-                "Please select a field.",
-            )
-            return None
-
-        if minimum_value is None or maximum_value is None:
-            messagebox.showwarning(
-                "Invalid range",
-                "Please enter valid minimum and maximum values.",
-            )
-            return None
-
-        lower_condition = CustomRuleCondition(
-            left_field=left_field,
-            operator=CustomRuleOperator.LESS_THAN,
-            right_value_type=CustomRuleRightValueType.VALUE,
-            right_value=minimum_value,
-        )
-
-        upper_condition = CustomRuleCondition(
-            left_field=left_field,
-            operator=CustomRuleOperator.GREATER_THAN,
-            right_value_type=CustomRuleRightValueType.VALUE,
-            right_value=maximum_value,
-        )
-
-        return self._build_advanced_rule(
-            rule_name,
-            [lower_condition, upper_condition],
-            match_mode=CustomRuleMatchMode.ANY,
-        )
-
-    def _build_advanced_rule(
-        self,
-        rule_name,
-        conditions,
-        match_mode=CustomRuleMatchMode.ALL,
-    ):
         return CustomRule(
             name=rule_name,
             severity=self._current_severity(),
@@ -1000,14 +996,6 @@ class RuleWizardDialog:
             self.severity_var.get(),
             CustomRuleSeverity.MEDIUM,
         )
-
-    def _default_advanced_name(self, rule_type):
-        field_name = self.left_field_var.get().strip()
-
-        if field_name:
-            return f"{field_name} - {rule_type}"
-
-        return rule_type
 
     def _parse_value(self, value):
         text = str(value).strip()
