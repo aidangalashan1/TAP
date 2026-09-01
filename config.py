@@ -35,6 +35,8 @@ CUSTOM_RULES_FILE_PATH = str(BASE_DIR / "custom_rules.json")
 
 THRESHOLD_SETTINGS_FILE_PATH = str(BASE_DIR / "threshold_settings.json")
 
+SESSION_FILE_PATH = str(BASE_DIR / "session.json")
+
 MAPPING_PROFILES_DIRECTORY = str(BASE_DIR / "mapping_profiles")
 
 
@@ -44,6 +46,7 @@ MAPPING_PROFILES_DIRECTORY = str(BASE_DIR / "mapping_profiles")
 
 SUPPORTED_EXCEL_EXTENSIONS = {
     ".xlsx",
+    ".xlsm",
     ".xls",
 }
 
