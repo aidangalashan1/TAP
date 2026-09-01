@@ -252,7 +252,7 @@ class RuleWizardDialog:
         ttk.Label(
             main,
             text="Rule Wizard",
-            font=("Segoe UI", 14, "bold"),
+            font=("TkDefaultFont", 16, "bold"),
         ).pack(anchor="w", pady=(0, 10))
 
         self._build_mode_section(main)
