@@ -2,6 +2,7 @@
 
 import openpyxl
 
+import parsers.workbook_parser as workbook_parser_module
 from parsers.workbook_parser import WorkbookParser
 
 
@@ -105,3 +106,66 @@ def test_non_formula_cells_are_unaffected_by_computed_values_worksheet(
     cell = worksheet_info.get_cell("B2")
     assert cell.has_formula is False
     assert cell.value == 200
+
+
+def test_load_workbook_does_not_reopen_file_when_no_formulas_present(
+    tmp_path, monkeypatch
+):
+    """
+    Re-parsing the whole file a second time (XML, styles, everything)
+    just to resolve formula results is real cost on a large workbook -
+    it must only happen when the workbook actually has a formula
+    somewhere, not on every load regardless.
+    """
+
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Labour"
+    worksheet["B2"] = 200
+    worksheet["C2"] = 50
+
+    file_path = tmp_path / "no_formulas.xlsx"
+    workbook.save(file_path)
+
+    load_calls = []
+    real_load_workbook = workbook_parser_module.load_workbook
+
+    def _counting_load_workbook(*args, **kwargs):
+        load_calls.append(kwargs.get("data_only"))
+        return real_load_workbook(*args, **kwargs)
+
+    monkeypatch.setattr(
+        workbook_parser_module, "load_workbook", _counting_load_workbook
+    )
+
+    WorkbookParser().load_workbook(str(file_path))
+
+    assert load_calls == [False]
+
+
+def test_load_workbook_reopens_file_when_formulas_present(
+    tmp_path, monkeypatch
+):
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Labour"
+    worksheet["B2"] = 200
+    worksheet["C2"] = "=B2*1.1"
+
+    file_path = tmp_path / "with_formulas.xlsx"
+    workbook.save(file_path)
+
+    load_calls = []
+    real_load_workbook = workbook_parser_module.load_workbook
+
+    def _counting_load_workbook(*args, **kwargs):
+        load_calls.append(kwargs.get("data_only"))
+        return real_load_workbook(*args, **kwargs)
+
+    monkeypatch.setattr(
+        workbook_parser_module, "load_workbook", _counting_load_workbook
+    )
+
+    WorkbookParser().load_workbook(str(file_path))
+
+    assert load_calls == [False, True]

@@ -648,16 +648,29 @@ class WorkbookMapperDialog:
                 worksheet
             )
 
+        try:
+            # A single explicit redraw for everything highlighted
+            # above (each call was passed redraw=False) rather than
+            # one implicit redraw per cell - see _apply_formatting/
+            # _render_input_areas for why that matters on a large
+            # sheet.
+            self.sheet_control.redraw()
+        except Exception:
+            pass
+
     def _apply_formatting(
         self,
         worksheet,
     ):
-        for cell in worksheet.cells:
+        # One highlight_cells() call per cell was the dominant cost
+        # on a large sheet - tens or hundreds of thousands of Python-
+        # level calls just to set a background colour. Grouping by
+        # colour first means one batched call per distinct colour
+        # instead (a handful, typically), with redraw deferred to a
+        # single call once everything's been highlighted.
+        cells_by_colour = {}
 
-            row = cell.row_number - 1
-            column = (
-                cell.column_number - 1
-            )
+        for cell in worksheet.cells:
 
             colour = (
                 self._normalise_colour(
@@ -669,24 +682,45 @@ class WorkbookMapperDialog:
                 )
             )
 
-            if colour:
+            if not colour:
+                continue
 
-                try:
+            cells_by_colour.setdefault(
+                colour, []
+            ).append(
+                (
+                    cell.row_number - 1,
+                    cell.column_number - 1,
+                )
+            )
 
-                    self.sheet_control.highlight_cells(
-                        row=row,
-                        column=column,
-                        bg=colour,
-                    )
+        for colour, cells in cells_by_colour.items():
 
-                except Exception:
-                    pass
+            try:
+
+                self.sheet_control.highlight_cells(
+                    cells=cells,
+                    bg=colour,
+                    redraw=False,
+                )
+
+            except Exception:
+                pass
 
     def _render_input_areas(self, worksheet):
         """
         Colour every used cell in the sheet by its input-area status,
         including cells that aren't part of any area at all (ignored/
         irrelevant, shown black) - not just the detected patches.
+
+        Painted in two passes rather than per-cell: first the whole
+        sheet defaults to "ignored" in one call (covers every cell
+        not part of any area, plus explicitly ignored areas - same
+        colour either way), then each status's cells are batched into
+        one highlight_cells() call apiece, applied in ascending
+        priority (removed last) so overlapping areas resolve the same
+        way a per-cell check would: removed beats confirmed beats
+        detected beats no area at all.
         """
 
         worksheet_schema = (
@@ -700,55 +734,84 @@ class WorkbookMapperDialog:
 
         input_areas = worksheet_schema.get_all_input_areas()
 
-        for cell in worksheet.cells:
+        try:
 
-            status = self._status_for_cell(
-                cell.cell_reference, input_areas
+            self.sheet_control.highlight_cells(
+                row="all",
+                column="all",
+                bg=self.STATUS_COLOURS["ignored"],
+                redraw=False,
             )
 
-            colour = self.STATUS_COLOURS.get(status)
+        except Exception:
+            pass
 
-            if colour is None:
+        cells_by_status = {
+            "detected": [],
+            "confirmed": [],
+            "removed": [],
+        }
+
+        for input_area in input_areas:
+
+            status = self._input_area_status(input_area)
+
+            if status not in cells_by_status:
+                # "ignored" areas need no separate pass - the whole
+                # sheet is already this colour by default above.
                 continue
 
-            row = cell.row_number - 1
-            column = cell.column_number - 1
+            cells_by_status[status].extend(
+                self._input_area_cell_indexes(input_area)
+            )
+
+        for status in ("detected", "confirmed", "removed"):
+
+            cells = cells_by_status[status]
+
+            if not cells:
+                continue
 
             try:
 
                 self.sheet_control.highlight_cells(
-                    row=row,
-                    column=column,
-                    bg=colour,
+                    cells=cells,
+                    bg=self.STATUS_COLOURS[status],
+                    redraw=False,
                 )
 
             except Exception:
                 pass
 
-    def _status_for_cell(self, cell_reference, input_areas):
-        best = None
+    def _input_area_status(self, input_area):
+        if input_area.is_deleted:
+            return "removed"
 
-        for input_area in input_areas:
+        if input_area.is_ignored:
+            return "ignored"
 
-            if not input_area.contains_cell(cell_reference):
-                continue
+        if (
+            input_area.user_confirmed
+            or input_area.user_created
+        ):
+            return "confirmed"
 
-            if input_area.is_deleted:
-                return "removed"
+        return "detected"
 
-            if input_area.is_ignored:
-                best = best or "ignored"
-                continue
+    def _input_area_cell_indexes(self, input_area):
+        area_range = input_area.area_range
 
-            if (
-                input_area.user_confirmed
-                or input_area.user_created
-            ):
-                return "confirmed"
-
-            best = best or "detected"
-
-        return best or "ignored"
+        return [
+            (row - 1, column - 1)
+            for row in range(
+                area_range.min_row,
+                area_range.max_row + 1,
+            )
+            for column in range(
+                area_range.min_column,
+                area_range.max_column + 1,
+            )
+        ]
 
     # ==================================================
     # TOOLS (click-and-drag zone assignment)
