@@ -144,12 +144,23 @@ class WorkbookParser:
         # calculated result instead (None only if the file was never
         # opened/saved in Excel, in which case the formula text is
         # kept as a fallback - same behaviour as before this fix).
-        computed_values_workbook = load_workbook(
-            filename=file_path,
-            data_only=True,
-            read_only=False,
-            keep_vba=False,
-        )
+        #
+        # That second load re-parses the entire file from scratch
+        # (XML, styles, everything) - real money on a large workbook,
+        # and most supplier/benchmark workbooks have no formulas in
+        # their input cells at all. So it's only opened when a cheap
+        # pre-scan of the already-loaded workbook (just checking each
+        # cell's value, no CellInfo objects built) finds at least one.
+        computed_values_workbook = None
+
+        if self._workbook_has_formulas(workbook):
+
+            computed_values_workbook = load_workbook(
+                filename=file_path,
+                data_only=True,
+                read_only=False,
+                keep_vba=False,
+            )
 
         workbook_info = WorkbookInfo(
             file_name=path.name,
@@ -160,7 +171,8 @@ class WorkbookParser:
 
             computed_values_worksheet = (
                 computed_values_workbook[worksheet.title]
-                if worksheet.title in computed_values_workbook.sheetnames
+                if computed_values_workbook is not None
+                and worksheet.title in computed_values_workbook.sheetnames
                 else None
             )
 
@@ -176,9 +188,27 @@ class WorkbookParser:
             )
 
         workbook.close()
-        computed_values_workbook.close()
+
+        if computed_values_workbook is not None:
+            computed_values_workbook.close()
 
         return workbook_info
+
+    def _workbook_has_formulas(
+        self,
+        workbook,
+    ) -> bool:
+        for worksheet in workbook.worksheets:
+            for row in worksheet.iter_rows():
+                for cell in row:
+
+                    if isinstance(cell, MergedCell):
+                        continue
+
+                    if self._is_formula(cell.value):
+                        return True
+
+        return False
 
     def _parse_worksheet(
         self,
