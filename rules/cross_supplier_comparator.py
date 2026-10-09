@@ -9,6 +9,8 @@ from models.pricing_models import Finding
 from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 from rules.clarification_text import build_clarification_request
+from rules.deviation import describe_direction
+from rules.deviation import signed_deviation_percent
 from rules.custom_rule_models import ComparisonBasis
 
 # Cap on how many distinct field names are reported by name in a
@@ -261,11 +263,11 @@ class CrossSupplierComparator:
                     if benchmark_number == 0:
                         continue
 
-                    deviation_percent = (
-                        abs(actual - benchmark_number) / benchmark_number
-                    ) * 100
+                    deviation_percent = signed_deviation_percent(
+                        actual, benchmark_number
+                    )
 
-                    if deviation_percent < threshold:
+                    if abs(deviation_percent) < threshold:
                         continue
 
                     comparator_label = "Benchmark Rate"
@@ -277,7 +279,7 @@ class CrossSupplierComparator:
                         Finding(
                             supplier_name=supplier_name,
                             severity=self._severity_for_deviation(
-                                deviation_percent
+                                abs(deviation_percent)
                             ),
                             worksheet_name=record.sheet_name,
                             cell_reference=record.get_cell_reference(
@@ -292,8 +294,9 @@ class CrossSupplierComparator:
                             comparator_label=comparator_label,
                             deviation_percent=round(deviation_percent, 2),
                             reason=(
-                                f"Value differs from benchmark by "
-                                f"{deviation_percent:.2f}%"
+                                f"Value is {abs(deviation_percent):.2f}% "
+                                f"{describe_direction(deviation_percent)} "
+                                f"the benchmark rate"
                             ),
                             suggested_clarification=(
                                 build_clarification_request(
@@ -402,11 +405,9 @@ class CrossSupplierComparator:
 
         for supplier_name, record, field_name, value in entries:
 
-            deviation_percent = (
-                abs(value - average) / abs(average)
-            ) * 100
+            deviation_percent = signed_deviation_percent(value, average)
 
-            if deviation_percent < tolerance_percent:
+            if abs(deviation_percent) < tolerance_percent:
                 continue
 
             findings.append(
@@ -419,8 +420,9 @@ class CrossSupplierComparator:
                     comparator_label=comparator_label,
                     deviation_percent=deviation_percent,
                     reason=(
-                        f"Value differs from the supplier group average by "
-                        f"{deviation_percent:.2f}%"
+                        f"Value is {abs(deviation_percent):.2f}% "
+                        f"{describe_direction(deviation_percent)} the "
+                        f"supplier group average"
                     ),
                 )
             )
@@ -440,7 +442,7 @@ class CrossSupplierComparator:
     ):
         return Finding(
             supplier_name=supplier_name,
-            severity=self._severity_for_deviation(deviation_percent),
+            severity=self._severity_for_deviation(abs(deviation_percent)),
             worksheet_name=record.sheet_name,
             cell_reference=record.get_cell_reference(field_name),
             item_description=f"{record.record_reference} | {field_name}",

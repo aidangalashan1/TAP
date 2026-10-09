@@ -8,6 +8,8 @@ from models.pricing_models import FindingCategory
 from models.pricing_models import Severity
 
 from rules.clarification_text import build_clarification_request
+from rules.deviation import describe_direction
+from rules.deviation import signed_deviation_percent
 from rules.custom_rule_models import (
     CustomRuleMatchMode,
     CustomRuleOperator,
@@ -232,11 +234,9 @@ class SchemaRuleEngine:
 
             for record, value in values:
 
-                deviation_percent = (
-                    abs(value - average) / abs(average)
-                ) * 100
+                deviation_percent = signed_deviation_percent(value, average)
 
-                if deviation_percent < rule.outlier_tolerance_percent:
+                if abs(deviation_percent) < rule.outlier_tolerance_percent:
                     continue
 
                 findings.append(
@@ -246,8 +246,9 @@ class SchemaRuleEngine:
                         value=value,
                         rule=rule,
                         reason=(
-                            f"Value differs from the average for this "
-                            f"field by {deviation_percent:.2f}%."
+                            f"Value is {abs(deviation_percent):.2f}% "
+                            f"{describe_direction(deviation_percent)} the "
+                            f"average for this field."
                         ),
                     )
                 )
