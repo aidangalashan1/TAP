@@ -382,14 +382,20 @@ class ReportWriter:
                 else ""
             )
 
-            worksheet.cell(
+            deviation_cell = worksheet.cell(
                 row=row_number,
                 column=10
-            ).value = getattr(
+            )
+
+            deviation_cell.value = getattr(
                 finding,
                 "deviation_percent",
                 None
             )
+
+            # Show direction explicitly: +10.00% = above reference,
+            # -10.00% = below.
+            deviation_cell.number_format = '+0.00"%";-0.00"%";0.00"%"'
 
             worksheet.cell(
                 row=row_number,

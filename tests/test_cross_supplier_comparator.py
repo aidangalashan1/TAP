@@ -192,3 +192,47 @@ def test_compute_benchmark_coverage_ignores_blank_submitted_values():
     # A blank submitted value isn't a field to compare at all, so it
     # shouldn't count toward the coverage denominator either.
     assert coverage["SupplierA"].total_fields == 0
+
+
+def test_average_comparison_signs_deviation_above_and_below():
+    """
+    Eight suppliers at 100, one at 130 (above) and one at 70 (below).
+    Average is 100, so the two outliers sit +30% and -30% - the sign
+    must show which side of the average each one is on.
+    """
+
+    supplier_records = {
+        f"Supplier{i}": [_record("Labour", "Row 2", {"Day Rate": 100})]
+        for i in range(8)
+    }
+    supplier_records["SupplierHigh"] = [
+        _record("Labour", "Row 2", {"Day Rate": 130})
+    ]
+    supplier_records["SupplierLow"] = [
+        _record("Labour", "Row 2", {"Day Rate": 70})
+    ]
+
+    comparator = CrossSupplierComparator(outlier_tolerance_percent=25.0)
+    findings = {
+        f.supplier_name: f for f in comparator.compare_statistical(supplier_records)
+    }
+
+    assert findings["SupplierHigh"].deviation_percent == 30.0
+    assert "above" in findings["SupplierHigh"].reason
+    assert findings["SupplierLow"].deviation_percent == -30.0
+    assert "below" in findings["SupplierLow"].reason
+
+
+def test_benchmark_comparison_signs_deviation_below_benchmark():
+    supplier_records = {
+        "SupplierA": [_record("Labour", "Row 2", {"Day Rate": 60})],
+    }
+    benchmark_records = [_record("Labour", "Row 2", {"Day Rate": 100})]
+
+    findings = CrossSupplierComparator(
+        benchmark_threshold_percent=30.0
+    ).compare_to_benchmark(supplier_records, benchmark_records)
+
+    assert len(findings) == 1
+    assert findings[0].deviation_percent == -40.0
+    assert "below" in findings[0].reason
